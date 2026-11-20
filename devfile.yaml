@@ -1,0 +1,18 @@
+schemaVersion: 2.2.0
+metadata:
+  name: hatredchallenge
+components:
+  - name: tools
+    container:
+      image: registry.redhat.io/devspaces/udi-rhel9:latest
+      memoryRequest: 2Gi
+      memoryLimit: 6Gi
+      cpuRequest: "1"
+      cpuLimit: "4"
+      mountSources: true
+      volumeMounts:
+        - name: openclaw-home
+          path: /home/user/.openclaw
+  - name: openclaw-home
+    volume:
+      size: 2Gi
