@@ -1,1 +1,1 @@
-# HatRedChallenge
+# HatRedChallenge - "Pany" Team
