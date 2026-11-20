@@ -1,26 +1,22 @@
 import os
+import smtplib
 import ssl
 from email.message import EmailMessage
-import smtplib
+
 
 def send_email(recipient, subject, body):
-    msg = EmailMessage()
-    msg["To"] = recipient
-    msg["Subject"] = subject
-    msg.set_content(body)
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ["SMTP_PORT"])
+    username = os.environ["SMTP_USER"]
+    password = os.environ["SMTP_PASSWORD"]
 
-    # Retrieve SMTP settings from environment variables
-    smtp_host = os.environ["SMTP_HOST"]
-    smtp_port = int(os.environ["SMTP_PORT"])
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_password = os.environ["SMTP_PASSWORD"]
-    smtp_from = os.environ["SMTP_FROM"]
+    message = EmailMessage()
+    message["From"] = username
+    message["To"] = recipient
+    message["Subject"] = subject
+    message.set_content(body)
 
-    # Create a secure SSL context
-    context = ssl.create_default_context()
-
-    # Connect to the SMTP server and send the email
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-        server.starttls(context=context)
-        server.login(smtp_user, smtp_password)
-        server.send_message(msg)
+    with smtplib.SMTP(host, port, timeout=15) as server:
+        server.starttls(context=ssl.create_default_context())
+        server.login(username, password)
+        server.send_message(message)
