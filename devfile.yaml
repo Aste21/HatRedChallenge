@@ -10,6 +10,14 @@ components:
       cpuRequest: "1"
       cpuLimit: "4"
       mountSources: true
+      endpoints:
+        - name: frontend
+          targetPort: 5173
+          protocol: http
+          exposure: public
+          secure: true
+          attributes:
+            urlRewriteSupported: false
       volumeMounts:
         - name: openclaw-home
           path: /home/user/.openclaw

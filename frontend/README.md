@@ -1,56 +1,29 @@
-# sv
+# Frontend
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+## Open in Dev Spaces
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+From the repository root on the `ui-dashboard` branch:
 
 ```sh
-# create a new project
-npx sv create my-app
+git pull --ff-only origin ui-dashboard
+cd frontend
+npm ci
+npm run workspace
 ```
 
-To recreate this project with the same configuration:
+Keep the terminal running. In Explorer, expand **Endpoints** and open **frontend** on port **5173** in a new tab. An already running workspace can also offer **Open in New Tab** when it detects the port. A Git pull updates the checkout; an existing workspace can keep its previous devfile configuration. If neither option appears, start a workspace from the `ui-dashboard` branch so Dev Spaces reads its endpoint declaration.
 
-```sh
-# recreate this project
-npx sv@1.7.0 create --template minimal --types ts --install npm frontend
-```
+If Vite reports a blocked host, stop the preview with Ctrl+C, set `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` to the exact hostname from the generated frontend URL (without the scheme or path), then run `npm run workspace` again.
 
-## Adding features
+For later updates, stop the preview, return to the repository root and repeat the commands. If Git reports that local edits would be overwritten, use `git status --short` to identify the file and save your edits before pulling. For the earlier starter page, `git stash push -m "Save Dev Spaces starter page" -- frontend/src/routes/+page.svelte` preserves that file in the stash.
 
-Add features to your project with `sv add`:
+## Data and integration
 
-```sh
-npx sv add
-```
+| Screen | Current implementation |
+| --- | --- |
+| Cashflow | Daily balances and monthly totals from the 2025 CSV. The forecast tab shows a 7-, 14- or 31-day fixed-cost scenario until the forecasting service is available. |
+| Proposals | Two illustrative proposals. Approve or decline locally. An approval records a simulated decision in browser storage. Connecting the team's approval API will enable shared decisions and backend notifications. |
+| Business news | The server reads `GET /articles?status=accepted` from the team's news service. Set `NEWS_API_URL` to the base URL reachable from the workspace before starting the preview. |
+| Chat | Prepared answers about the statement, payments and proposals. The live chat backend can replace the answer handler in `src/routes/assistant/+page.svelte`. |
 
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Run `python scripts/statement.py` from this directory to regenerate the aggregate fixture from the CSV. Amounts are stored in euro cents. For local development use `npm run dev`. Run `npm run check` and `npm run build` before sharing changes.
