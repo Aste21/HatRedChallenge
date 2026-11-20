@@ -4,3 +4,6 @@ __pycache__/
 *.bundle
 frontend/node_modules/
 frontend/.svelte-kit/
+
+__pycache__/
+*.pyc
