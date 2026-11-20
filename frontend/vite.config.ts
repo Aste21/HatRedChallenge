@@ -3,6 +3,9 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	preview: {
+  allowedHosts: ['admin-hatredchallenge-quh9-code-redirect-3.apps.ocp.k8wkr.sandbox735.opentlc.com']
+},
 	plugins: [
 		sveltekit({
 			compilerOptions: {
