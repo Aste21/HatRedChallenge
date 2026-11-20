@@ -8,3 +8,4 @@ def send_email(recipient, subject, body):
     message.set_content(body)
 
     print(message.as_string())
+
