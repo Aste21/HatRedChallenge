@@ -399,3 +399,11 @@ def list_articles(
             (status, limit),
         ).fetchall()
     return {"articles": [dict(row) for row in rows]}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8080")),
+    )
