@@ -8,11 +8,11 @@ def send_email(recipient, subject, body):
     msg.set_content(body)
 
     # SMTP settings
-    smtp_host = "SMTP_HOST"
-    smtp_port = SMTP_PORT
-    smtp_user = SMTP_USER
-    smtp_password = SMTP_PASSWORD
-    smtp_from = SMTP_FROM
+    smtp_host = "SMTP_HOST"  # Replace with your SMTP server host
+    smtp_port = SMTP_PORT  # Replace with your SMTP server port
+    smtp_user = SMTP_USER  # Replace with your SMTP username
+    smtp_password = SMTP_PASSWORD  # Replace with your SMTP password
+    smtp_from = SMTP_FROM  # Replace with your email address
 
     # Create a secure SSL context
     context = smtplib.SSLContext(smtplib.protocol.STARTTLS)
