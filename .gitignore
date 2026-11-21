@@ -5,21 +5,58 @@
 __pycache__/
 *.py[cod]
 .venv/
+env/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
 backend/var/
-
-# Secrets and local config
-.env
-/secrets
-*.kubeconfig
-kubeconfig
 
 # Frontend
 node_modules/
 .svelte-kit/
 build/
 
-# Editors
+# Secrets and cluster credentials
+.env
+.env/
+.env.*
+!.env.example
+/secrets
+kubeconfig
+*kubeconfig*
+.kube/
+oc.exe
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*secret*.yaml
+*secret*.yml
+*secret*.json
+!example-secret*.yaml
+
+# Rendered / local manifests
+*.local.yaml
+*.local.yml
+*-processed.yaml
+*-processed.yml
+openshift-debug-*
+.odo/
+devfile.yaml.bak
+charts/*.tgz
+.helm/
+kustomize-build/
+rendered-*.yaml
+bin/
+bundle/manifests/*.clusterserviceversion.yaml.bak
+testbin/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
 .idea/
+*.swp
+*.swo
