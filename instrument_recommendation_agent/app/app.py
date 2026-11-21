@@ -1,10 +1,16 @@
 from datetime import date
-from typing import Literal
+from decimal import Decimal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
-from agent import NotificationDraft, run_agent
+from agent import (
+    InvalidRecommendationError,
+    NotificationDraft,
+    RecommendedFamily,
+    run_agent,
+)
+from tools import OFFERS
 
 
 app = FastAPI(title="Instrument Recommendation Agent")
@@ -12,7 +18,7 @@ app = FastAPI(title="Instrument Recommendation Agent")
 
 class LockAmount(BaseModel):
     days: int = Field(gt=0)
-    amount: float = Field(ge=0, allow_inf_nan=False)
+    amount: Decimal = Field(ge=0, allow_inf_nan=False)
     lowest_balance: float
 
 
@@ -21,8 +27,8 @@ class ScenarioLimits(BaseModel):
 
     @model_validator(mode="after")
     def validate_unique_durations(self):
-        days = [limit.days for limit in self.safe_to_lock]
-        if len(days) != len(set(days)):
+        durations = [limit.days for limit in self.safe_to_lock]
+        if len(durations) != len(set(durations)):
             raise ValueError("Each lock duration must appear at most once.")
         return self
 
@@ -34,34 +40,46 @@ class RecommendationRequest(BaseModel):
     with_assumptions: ScenarioLimits | None = None
 
 
-class RecommendedOffer(BaseModel):
-    offer_id: str
-    name: str
-    term_days: int
-    currency: Literal["EUR"]
-    min_amount: str
-    max_amount: str
-    annual_rate_pct: float
-
-
 class RecommendationResponse(BaseModel):
     account_id: str
     as_of: date
-    offers: list[RecommendedOffer]
+    families: list[RecommendedFamily] = Field(max_length=3)
     notification: NotificationDraft
+
+
+class OfferTermsResponse(BaseModel):
+    term_days: list[int]
+
+
+@app.get("/offer-terms", response_model=OfferTermsResponse)
+def offer_terms() -> OfferTermsResponse:
+    return OfferTermsResponse(
+        term_days=sorted(
+            {offer["term_days"] for offer in OFFERS.values() if "term_days" in offer}
+        )
+    )
 
 
 @app.post("/recommendations", response_model=RecommendationResponse)
 def recommend(request: RecommendationRequest) -> RecommendationResponse:
-    offers, notification = run_agent(
-        as_of=request.as_of,
-        safe_to_lock_eur={
-            limit.days: limit.amount for limit in request.official.safe_to_lock
-        },
-    )
+    safe_to_lock_eur = {
+        limit.days: limit.amount for limit in request.official.safe_to_lock
+    }
+
+    try:
+        families, notification = run_agent(
+            as_of=request.as_of,
+            safe_to_lock_eur=safe_to_lock_eur,
+        )
+    except InvalidRecommendationError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The recommendation model returned an invalid selection.",
+        ) from error
+
     return RecommendationResponse(
         account_id=request.account_id,
         as_of=request.as_of,
-        offers=[RecommendedOffer.model_validate(offer) for offer in offers],
+        families=families,
         notification=notification,
     )

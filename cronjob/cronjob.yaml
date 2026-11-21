@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: news-fetch-daily
+  namespace: sth
+spec:
+  schedule: "0 0 * * *"
+  timeZone: Europe/Warsaw
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: fetch
+              image: __NEWS_SERVICE_IMAGE__
+              imagePullPolicy: Always
+              command: ["python", "/cronjob/fetch.py"]
+              env:
+                - name: NEWS_FETCH_URL
+                  value: "http://news-service:8080/fetch"
+                - name: ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: news-service-secrets
+                      key: ADMIN_TOKEN
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              volumeMounts:
+                - name: fetch-script
+                  mountPath: /cronjob/fetch.py
+                  subPath: fetch.py
+                  readOnly: true
+          volumes:
+            - name: fetch-script
+              configMap:
+                name: news-fetch-script
