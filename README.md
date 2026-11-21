@@ -111,6 +111,11 @@ under the variable names that service expects, and wires all the URLs together:
 
 To stop everything, close the windows.
 
+**Sign in** on the landing page with the demo account: username `amalfi`, password `amalfi` (Pizzeria Amalfi).
+Each account sees only its own data. To add a business, see the comment at the top of
+[`frontend/src/lib/server/accounts.ts`](frontend/src/lib/server/accounts.ts): the same account id is needed
+there, in [`backend/app/accounts.py`](backend/app/accounts.py) and in the forecast service's data.
+
 <details>
 <summary>Starting services by hand (macOS / Linux / Git Bash)</summary>
 
@@ -180,8 +185,12 @@ The full list with comments is in [`backend/.env.example`](backend/.env.example)
 | `DATABASE_PATH` | backend | SQLite file for chat history, decisions and the outbox (mount a PVC in the cluster) |
 | `OWNER_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | backend | Optional e-mail delivery of approval confirmations |
 | `CHAT_API_URL`, `NEWS_API_URL` | frontend | Backend and news service base URLs |
+| `SESSION_SECRET` | frontend | Signs the login cookie. Set it in the cluster; without it, everyone is signed out when the frontend restarts |
 
 ## Backend API
+
+Every `/api` call needs the `X-Account-Id` header. The frontend server sets it after login; the browser never
+calls the backend directly, so keep the backend Service cluster-internal (no Route).
 
 | Endpoint | Purpose |
 |---|---|
@@ -190,6 +199,7 @@ The full list with comments is in [`backend/.env.example`](backend/.env.example)
 | `POST /api/proposals/{id}/decision` | `{"decision": "approved" \| "declined"}`. Approval records a simulated transaction and a notification |
 | `GET /api/transactions` | Simulated transactions |
 | `GET /api/notifications` | Notification outbox |
+| `GET/POST /api/news/impacts`, `DELETE /api/news/impacts/{article_id}` | News applied to the forecast and the events derived from them |
 | `POST /api/chat`, `GET/DELETE /api/conversations[/{id}]` | Chat and its history |
 
 ## Development
