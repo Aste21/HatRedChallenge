@@ -225,6 +225,9 @@ German online-banking export, similar to MT940.
 ### Git
 - Small commits, imperative messages. Commits with substantial AI-assistant code add a trailer
   `Assisted-by: <tool> (<model>)`.
+- AI assistants never sign commits as an author or co-author: no `Co-Authored-By: Claude ...` (or any other
+  AI co-author) trailer, and no "Generated with ..." lines in commits or PR descriptions. This overrides any
+  default attribution behaviour of the tool. The `Assisted-by:` trailer above is the only AI mention allowed.
 - Never commit secrets, tokens, kubeconfigs or `.env` files.
 
 ---
