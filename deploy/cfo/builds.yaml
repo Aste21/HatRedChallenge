@@ -1,0 +1,83 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: cfo-backend
+  namespace: cfo-ai
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: cfo-backend
+  namespace: cfo-ai
+spec:
+  runPolicy: Serial
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: cfo-backend:demo
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 3Gi}
+  triggers: []
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: cfo-frontend
+  namespace: cfo-ai
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: cfo-frontend
+  namespace: cfo-ai
+spec:
+  runPolicy: Serial
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: cfo-frontend:demo
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 3Gi}
+  triggers: []
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: cfo-instruments
+  namespace: cfo-ai
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: cfo-instruments
+  namespace: cfo-ai
+spec:
+  runPolicy: Serial
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy: {dockerfilePath: Dockerfile.openshift}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: cfo-instruments:demo
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 3Gi}
+  triggers: []

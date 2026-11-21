@@ -34,6 +34,8 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
     }),
     timeoutMs: 90_000
   });
+  if (response.status === 422) error(422, 'The safety check blocked the message or its context. Remove sensitive details and try again.');
+  if (response.status === 503) error(503, 'The safety check is unavailable. Please try again shortly.');
   failOnBackendError(response, 'The assistant could not answer right now.');
   const answer = await response.json();
   return json({

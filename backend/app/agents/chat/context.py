@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Callable
+from functools import partial
 from typing import Annotated
 
 from fastapi import Depends
@@ -101,8 +103,8 @@ def get_business_snapshot(
     forecast_client: Annotated[ForecastClient, Depends(get_forecast_client)],
     news_client: Annotated[NewsClient, Depends(get_news_client)],
     repository: Annotated[DecisionRepository, Depends(get_decision_repository)],
-) -> str:
-    """FastAPI dependency that builds the business snapshot for one chat request.
+) -> Callable[[], str]:
+    """Defer snapshot retrieval until the incoming chat message passes the input checks.
 
     Args:
         forecast_client: Injected forecast client.
@@ -112,4 +114,4 @@ def get_business_snapshot(
     Returns:
         The snapshot text.
     """
-    return build_business_snapshot(forecast_client, news_client, repository)
+    return partial(build_business_snapshot, forecast_client, news_client, repository)

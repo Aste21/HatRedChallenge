@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cfo-backend-ingress, namespace: cfo-ai}
+spec:
+  podSelector: {matchLabels: {app: cfo-backend}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - {podSelector: {matchLabels: {app: cfo-frontend}}}
+      ports: [{port: 8080, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cfo-instruments-ingress, namespace: cfo-ai}
+spec:
+  podSelector: {matchLabels: {app: cfo-instruments}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - {podSelector: {matchLabels: {app: cfo-backend}}}
+      ports: [{port: 8080, protocol: TCP}]

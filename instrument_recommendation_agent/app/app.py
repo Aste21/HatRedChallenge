@@ -4,10 +4,11 @@ from typing import Literal
 from fastapi import FastAPI
 from pydantic import BaseModel, Field, model_validator
 
-from agent import NotificationDraft, run_agent
+from agent import NotificationDraft, draft_notification, run_agent
 
 
 app = FastAPI(title="Instrument Recommendation Agent")
+app.state.draft_notification = draft_notification
 
 
 class LockAmount(BaseModel):
@@ -55,6 +56,7 @@ class RecommendationResponse(BaseModel):
 def recommend(request: RecommendationRequest) -> RecommendationResponse:
     offers, notification = run_agent(
         as_of=request.as_of,
+        draft=app.state.draft_notification,
         safe_to_lock_eur={
             limit.days: limit.amount for limit in request.official.safe_to_lock
         },

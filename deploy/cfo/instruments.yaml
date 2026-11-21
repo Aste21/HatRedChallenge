@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cfo-instruments, namespace: cfo-ai}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: cfo-instruments}}
+  template:
+    metadata: {labels: {app: cfo-instruments}}
+    spec:
+      serviceAccountName: cfo-backend
+      containers:
+        - name: instruments
+          image: image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-instruments:demo
+          imagePullPolicy: Always
+          ports: [{name: http, containerPort: 8080}]
+          envFrom: [{configMapRef: {name: cfo-backend}}]
+          resources:
+            requests: {cpu: 150m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1536Mi}
+          readinessProbe: {httpGet: {path: /openapi.json, port: http}, timeoutSeconds: 3}
+          volumeMounts:
+            - {name: ca, mountPath: /etc/cfo-ca, readOnly: true}
+      volumes:
+        - {name: ca, configMap: {name: openshift-service-ca.crt}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: cfo-instruments, namespace: cfo-ai}
+spec:
+  selector: {app: cfo-instruments}
+  ports: [{name: http, port: 8080, targetPort: http}]

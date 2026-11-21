@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: cfo-data, namespace: cfo-ai}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gp3-csi
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: cfo-backend, namespace: cfo-ai}
+data:
+  LLM_BASE_URL: https://qwen3-8b-predictor.my-first-model.svc:8443/v1
+  LLM_MODEL: qwen3-8b
+  LLM_CA_BUNDLE: /etc/cfo-ca/service-ca.crt
+  SERVICE_TOKEN_FILE: /var/run/secrets/kubernetes.io/serviceaccount/token
+  GUARDRAILS_URL: https://cfo-guardrails.autonomous-cfo-guardrails.svc
+  FORECAST_API_URL: http://forecaster.sth.svc:8080
+  INSTRUMENT_API_URL: http://cfo-instruments:8080
+  NEWS_API_URL: http://news-service.sth.svc:8080
+  DATABASE_PATH: /data/cfo.sqlite3
+  MLFLOW_TRACKING_URI: https://mlflow.redhat-ods-applications.svc:8443/mlflow
+  MLFLOW_TRACKING_AUTH: kubernetes-namespaced
+  MLFLOW_EXPERIMENT_NAME: autonomous-cfo-agents
+  MLFLOW_TRACKING_SERVER_CERT_PATH: /etc/cfo-ca/service-ca.crt
+  MLFLOW_HTTP_REQUEST_TIMEOUT: "4"
+  MLFLOW_HTTP_REQUEST_MAX_RETRIES: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cfo-backend, namespace: cfo-ai}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: cfo-backend}}
+  template:
+    metadata: {labels: {app: cfo-backend}}
+    spec:
+      serviceAccountName: cfo-backend
+      containers:
+        - name: backend
+          image: image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend:demo
+          imagePullPolicy: Always
+          ports: [{name: http, containerPort: 8080}]
+          envFrom: [{configMapRef: {name: cfo-backend}}]
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 2Gi}
+          readinessProbe: {httpGet: {path: /healthz, port: http}}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 30}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: ca, mountPath: /etc/cfo-ca, readOnly: true}
+      volumes:
+        - {name: data, persistentVolumeClaim: {claimName: cfo-data}}
+        - {name: ca, configMap: {name: openshift-service-ca.crt}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: cfo-backend, namespace: cfo-ai}
+spec:
+  selector: {app: cfo-backend}
+  ports: [{name: http, port: 8080, targetPort: http}]

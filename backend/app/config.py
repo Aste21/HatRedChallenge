@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     llm_base_url: str
     llm_model: str = ""
     llm_api_key: str = "EMPTY"
+    service_token_file: Path | None = None
+    guardrails_url: str = ""
+    guardrails_timeout_seconds: float = 12.0
     llm_ca_bundle: str = ""
     llm_verify_tls: bool = True
     llm_timeout_seconds: float = 60.0
@@ -51,6 +54,12 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
+
+    def service_token(self) -> str:
+        """Read the current projected pod token, or the configured local credential."""
+        if self.service_token_file:
+            return self.service_token_file.read_text(encoding="utf-8").strip()
+        return self.llm_api_key
 
 
 @lru_cache

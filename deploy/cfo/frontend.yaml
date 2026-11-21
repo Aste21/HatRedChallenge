@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cfo-frontend
+  namespace: cfo-ai
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.primary: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"autonomous-cfo"}}'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cfo-frontend
+  namespace: cfo-ai
+  annotations: {service.beta.openshift.io/serving-cert-secret-name: cfo-frontend-tls}
+spec:
+  selector: {app: cfo-frontend}
+  ports: [{name: https, port: 443, targetPort: oauth}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cfo-frontend, namespace: cfo-ai}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: cfo-frontend}}
+  template:
+    metadata: {labels: {app: cfo-frontend}}
+    spec:
+      serviceAccountName: cfo-frontend
+      containers:
+        - name: frontend
+          image: image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-frontend:demo
+          imagePullPolicy: Always
+          env:
+            - {name: HOST, value: "127.0.0.1"}
+            - {name: CHAT_API_URL, value: "http://cfo-backend:8080"}
+            - {name: NEWS_API_URL, value: "http://news-service.sth.svc:8080"}
+            - {name: PROTOCOL_HEADER, value: "x-forwarded-proto"}
+          readinessProbe:
+            exec: {command: [node, -e, "fetch('http://127.0.0.1:8080/assistant').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]}
+            timeoutSeconds: 4
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+        - name: oauth
+          image: quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:95fc8aff929881076d6a9f974d70f9652ec532671ce1992f516254350a7f711e
+          args:
+            - --provider=openshift
+            - --openshift-service-account=cfo-frontend
+            - '--openshift-sar={"namespace":"cfo-ai","resource":"pods","verb":"get"}'
+            - --upstream=http://127.0.0.1:8080
+            - --https-address=:8443
+            - --http-address=
+            - --email-domain=*
+            - --cookie-secret-file=/etc/session/cookie
+            - --tls-cert=/etc/tls/tls.crt
+            - --tls-key=/etc/tls/tls.key
+          ports: [{name: oauth, containerPort: 8443}]
+          readinessProbe: {tcpSocket: {port: oauth}}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - {name: tls, mountPath: /etc/tls, readOnly: true}
+            - {name: cookie, mountPath: /etc/session, readOnly: true}
+      volumes:
+        - {name: tls, secret: {secretName: cfo-frontend-tls}}
+        - {name: cookie, secret: {secretName: cfo-oauth-session}}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: autonomous-cfo
+  namespace: cfo-ai
+  annotations: {haproxy.router.openshift.io/timeout: 120s}
+spec:
+  to: {kind: Service, name: cfo-frontend}
+  port: {targetPort: https}
+  tls: {termination: reencrypt, insecureEdgeTerminationPolicy: Redirect}

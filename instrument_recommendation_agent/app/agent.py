@@ -1,5 +1,6 @@
 import json
 import os
+from collections.abc import Callable
 from datetime import date
 from functools import lru_cache
 
@@ -42,9 +43,10 @@ def draft_notification(
     *,
     as_of: date,
     evaluations: list[dict],
+    model: ChatOpenAI | None = None,
 ) -> NotificationDraft:
     agent = create_agent(
-        model=get_model(),
+        model=model if model is not None else get_model(),
         response_format=ToolStrategy(NotificationDraft),
         system_prompt=SYSTEM_PROMPT,
     )
@@ -63,6 +65,7 @@ def run_agent(
     *,
     as_of: date,
     safe_to_lock_eur: dict[int, float],
+    draft: Callable[..., NotificationDraft] = draft_notification,
 ) -> tuple[list[dict], NotificationDraft]:
     evaluate_offer = make_evaluate_offer(safe_to_lock_eur=safe_to_lock_eur)
     catalog = list_offers.invoke({})
@@ -86,5 +89,5 @@ def run_agent(
                 }
             )
 
-    notification = draft_notification(as_of=as_of, evaluations=evaluations)
+    notification = draft(as_of=as_of, evaluations=evaluations)
     return offers, notification
