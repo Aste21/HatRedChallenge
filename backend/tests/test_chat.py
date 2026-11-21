@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from openai import APIConnectionError
@@ -10,6 +11,8 @@ from openai import APIConnectionError
 from app.agents.chat.agent import CHART_FAILED_REPLY, TITLE_PROMPT, _clean_title
 from app.agents.chat.charts import describe_chart, parse_chart_arguments
 from app.agents.chat.context import get_business_snapshot
+from app.config import Settings
+from app.guardrails import GuardrailsClient, get_guardrails_client
 from app.knowledge import load_company_knowledge
 from app.llm import LlmReply, ToolCall, get_llm_client
 from app.main import app
@@ -71,7 +74,10 @@ def client(tmp_path: Path, fake_llm_client: FakeLlmClient) -> Iterator[TestClien
     repository = ConversationRepository(tmp_path / "chat.sqlite3")
     app.dependency_overrides[get_llm_client] = lambda: fake_llm_client
     app.dependency_overrides[get_conversation_repository] = lambda: repository
-    app.dependency_overrides[get_business_snapshot] = lambda: ""
+    app.dependency_overrides[get_business_snapshot] = lambda: lambda: ""
+    app.dependency_overrides[get_guardrails_client] = lambda: GuardrailsClient(
+        Settings(llm_base_url="http://unused")
+    )
     try:
         yield TestClient(app, headers={"X-Account-Id": "amalfi"})
     finally:
@@ -134,6 +140,31 @@ def test_unknown_conversation_returns_404(client: TestClient) -> None:
 
 def test_blank_message_is_rejected(client: TestClient) -> None:
     assert client.post("/api/chat", json={"message": "   "}).status_code == 422
+
+
+@pytest.mark.parametrize(("decision", "code"), [("blocked", 422), ("unexpected", 503), (None, 503)])
+def test_guardrails_stop_before_forecast_model_title_and_storage(
+    client: TestClient, fake_llm_client: FakeLlmClient, decision: str | None, code: int
+) -> None:
+    checks = GuardrailsClient(Settings(llm_base_url="http://unused", guardrails_url="https://nemo"))
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert b"example.org" in request.content
+        return httpx.Response(200, json={"status": decision}) if decision else httpx.Response(503)
+
+    checks.client = httpx.Client(transport=httpx.MockTransport(respond))
+    app.dependency_overrides[get_guardrails_client] = lambda: checks
+    app.dependency_overrides[get_business_snapshot] = lambda: lambda: pytest.fail("Forecast fetched")
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Explain this page",
+            "page_context": {"path": "/", "title": "Cash", "content": "demo@example.org"},
+        },
+    )
+    assert response.status_code == code
+    assert fake_llm_client.requests == []
+    assert client.get("/api/conversations").json() == {"conversations": []}
 
 
 def test_delete_conversation(client: TestClient) -> None:

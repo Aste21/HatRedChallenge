@@ -8,12 +8,15 @@ from agent import (
     InvalidRecommendationError,
     NotificationDraft,
     RecommendedFamily,
+    request_decision,
     run_agent,
 )
 from tools import OFFERS
 
 
+
 app = FastAPI(title="Instrument Recommendation Agent")
+app.state.request_decision = request_decision
 
 
 class LockAmount(BaseModel):
@@ -69,6 +72,7 @@ def recommend(request: RecommendationRequest) -> RecommendationResponse:
     try:
         families, notification = run_agent(
             as_of=request.as_of,
+            decide=app.state.request_decision,
             safe_to_lock_eur=safe_to_lock_eur,
         )
     except InvalidRecommendationError as error:
@@ -76,6 +80,7 @@ def recommend(request: RecommendationRequest) -> RecommendationResponse:
             status_code=502,
             detail="The recommendation model returned an invalid selection.",
         ) from error
+
 
     return RecommendationResponse(
         account_id=request.account_id,

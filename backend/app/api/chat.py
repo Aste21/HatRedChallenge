@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,15 +7,18 @@ from openai import OpenAIError
 from pydantic import BaseModel, Field
 
 from app.accounts import AccountProfile, get_account
-from app.agents.chat.agent import ChatMessage, PageContext, answer, generate_title
+from app.agents.chat.agent import MAX_HISTORY_MESSAGES, ChatMessage, PageContext, answer, generate_title
 from app.agents.chat.charts import ChartSpec, StatementPeriod
+
 from app.agents.chat.context import get_business_snapshot
+from app.guardrails import GuardrailsClient, get_guardrails_client
 from app.llm import LlmClient, get_llm_client
 from app.storage.conversations import (
     ConversationRepository,
     ConversationSummary,
     get_conversation_repository,
 )
+from app.tracing import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +56,25 @@ def post_chat(
     account: Annotated[AccountProfile, Depends(get_account)],
     llm_client: Annotated[LlmClient, Depends(get_llm_client)],
     repository: Annotated[ConversationRepository, Depends(get_conversation_repository)],
-    business_snapshot: Annotated[str, Depends(get_business_snapshot)],
+    business_snapshot: Annotated[Callable[[], str], Depends(get_business_snapshot)],
+    guardrails: Annotated[GuardrailsClient, Depends(get_guardrails_client)],
+) -> ChatResponse:
+    """Trace an exchange without exporting the owner's question or financial data."""
+    with trace_span("cfo.chat") as metadata:
+        try:
+            return _answer_request(request, account, llm_client, repository, business_snapshot, guardrails)
+        except HTTPException as error:
+            metadata["http_status"] = error.status_code
+            raise
+
+
+def _answer_request(
+    request: ChatRequest,
+    account: AccountProfile,
+    llm_client: LlmClient,
+    repository: ConversationRepository,
+    business_snapshot: Callable[[], str],
+    guardrails: GuardrailsClient,
 ) -> ChatResponse:
     """Answer a user message and store the exchange in the chat history.
 
@@ -89,11 +111,21 @@ def post_chat(
         ]
     history.append(ChatMessage(role="user", content=question))
 
-    business_data = "\n".join(part for part in (request.statement_summary.strip(), business_snapshot) if part)
+    content = [item.content for item in history[-MAX_HISTORY_MESSAGES:]]
+    if request.page_context:
+        content.extend([request.page_context.title, request.page_context.content])
+    if request.statement_summary.strip():
+        content.append(request.statement_summary.strip())
+    guardrails.check(content)
+    snapshot = business_snapshot()
+    if snapshot:
+        guardrails.check([snapshot])
+    business_data = "\n".join(part for part in (request.statement_summary.strip(), snapshot) if part)
     try:
         chat_answer = answer(
             llm_client, history, request.page_context, business_data, account, request.statement_period
         )
+
     except OpenAIError as error:
         logger.exception("LLM call failed")
         raise HTTPException(
@@ -102,7 +134,9 @@ def post_chat(
     reply = chat_answer.reply.strip() or "I have no answer to that yet."
 
     if conversation is None:
-        conversation = repository.create_conversation(account.id, generate_title(llm_client, question))
+        with trace_span("cfo.conversation_title"):
+            title = generate_title(llm_client, question)
+        conversation = repository.create_conversation(account.id, title)
     repository.append_exchange(conversation.id, question, reply, chat_answer.chart)
     return ChatResponse(
         conversation_id=conversation.id, title=conversation.title, reply=reply, chart=chat_answer.chart

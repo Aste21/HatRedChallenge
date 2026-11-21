@@ -1,9 +1,9 @@
 from functools import lru_cache
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.config import get_settings
-from app.service_client import ServiceClient
+from app.service_client import ServiceClient, ServiceUnavailableError
 
 
 class NewsArticle(BaseModel):
@@ -48,7 +48,12 @@ class NewsClient:
         payload = self._service_client.request_json(
             "GET", "/articles", params={"status": "accepted", "limit": limit}
         )
-        return [NewsArticle.model_validate(article) for article in payload.get("articles", [])]
+        if not isinstance(payload, dict) or not isinstance(payload.get("articles"), list):
+            raise ServiceUnavailableError("The news service returned an invalid article list.")
+        try:
+            return [NewsArticle.model_validate(article) for article in payload["articles"]]
+        except ValidationError as error:
+            raise ServiceUnavailableError("The news service returned an invalid article.") from error
 
 
 @lru_cache

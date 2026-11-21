@@ -2,6 +2,10 @@ import json
 import logging
 import os
 from collections import defaultdict
+
+
+from collections.abc import Callable
+
 from datetime import date
 from decimal import Decimal
 from functools import lru_cache
@@ -94,11 +98,23 @@ def get_model() -> ChatOpenAI:
     )
 
 
+def request_decision(messages: list[dict], model: ChatOpenAI | None = None) -> AgentDecision | None:
+    """Request a structured family selection and draft from the configured model."""
+    agent = create_agent(
+        model=model if model is not None else get_model(),
+        response_format=ToolStrategy(AgentDecision),
+        system_prompt=SYSTEM_PROMPT,
+    )
+    return agent.invoke({"messages": messages}).get("structured_response")
+
+
 def run_agent(
     *,
     as_of: date,
     safe_to_lock_eur: dict[int, Decimal],
+    decide: Callable[[list[dict]], AgentDecision | None] = request_decision,
 ) -> tuple[list[RecommendedFamily], NotificationDraft]:
+
     evaluate_offer = make_evaluate_offer(safe_to_lock_eur=safe_to_lock_eur)
     variants_by_family: dict[str, list[OfferVariant]] = defaultdict(list)
     family_names: dict[str, str] = {}
@@ -154,17 +170,12 @@ def run_agent(
     }
     request_message = {"role": "user", "content": json.dumps(payload)}
 
-    agent = create_agent(
-        model=get_model(),
-        response_format=ToolStrategy(AgentDecision),
-        system_prompt=SYSTEM_PROMPT,
-    )
+
 
     messages = [request_message]
 
     for _ in range(2):
-        result = agent.invoke({"messages": messages})
-        decision = result.get("structured_response")
+        decision = decide(messages)
 
         if not isinstance(decision, AgentDecision):
             error = "No structured AgentDecision was returned."

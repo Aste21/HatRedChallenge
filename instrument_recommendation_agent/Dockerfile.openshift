@@ -1,0 +1,10 @@
+FROM image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend:demo
+USER 0
+WORKDIR /opt/instruments
+COPY requirements.txt ./
+RUN python -m pip install --no-cache-dir -r requirements.txt && python -m pip check
+COPY app/agent.py app/tools.py app/cluster.py ./
+# Preserve the installed CFO package named app alongside the standalone FastAPI entry point.
+COPY app/app.py ./instrument_api.py
+USER 1001
+CMD ["python", "-m", "uvicorn", "cluster:app", "--host", "0.0.0.0", "--port", "8080"]

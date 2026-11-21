@@ -1,4 +1,8 @@
-import { createLedger, dateLabel, money, type Statement } from '#lib/ledger.ts';
+import { createLedger, dateLabel, type Statement } from '#lib/ledger.ts';
+
+// A plain EUR amount keeps model input unambiguous when several figures appear next to one another.
+const euros = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', useGrouping: false });
+const money = (cents: number) => euros.format(cents / 100);
 
 /**
  * The bank-statement figures the assistant may quote, as compact text. Computed here because the

@@ -5,7 +5,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.config import get_settings
 from app.forecasting.offer_terms import OfferTermsClient
@@ -130,12 +130,16 @@ class ForecastClient:
         """
         return self._service_client.configured
 
-    def fetch_forecast(self, account_id: str, horizon_days: int = 90) -> Forecast:
+    def fetch_forecast(
+        self, account_id: str, horizon_days: int = 90, *, trace_attributes: dict | None = None
+    ) -> Forecast:
         """Forecast an account's balance for the next days.
+
 
         Args:
             account_id: Account id known to the forecast service.
             horizon_days: Number of days to forecast (7–365).
+            trace_attributes: Optional per-request metadata for the caller's forecast span.
 
         Returns:
             The forecast with daily bands and a safe-to-lock amount for every catalog term in the horizon.
@@ -147,10 +151,13 @@ class ForecastClient:
                service that is down does not slow down every page by the connection timeout.
             3. Otherwise ask the forecast service and remember the forecast or the failure.
         """
+        if trace_attributes is not None:
+            trace_attributes.update(horizon_days=horizon_days, cache_hit=False)
         events = self._load_events(account_id)
         lock_days = [days for days in self._load_lock_days() if days <= horizon_days] or [horizon_days]
         cache_key = (account_id, horizon_days, json.dumps([events, lock_days], sort_keys=True))
         cached = self._cache.get(cache_key)
+
         if cached is not None:
             stored_at, result = cached
             max_age = (
@@ -159,6 +166,8 @@ class ForecastClient:
                 else FORECAST_CACHE_SECONDS
             )
             if time.monotonic() - stored_at < max_age:
+                if trace_attributes is not None:
+                    trace_attributes["cache_hit"] = True
                 if isinstance(result, ServiceUnavailableError):
                     raise result
                 return result
@@ -177,8 +186,12 @@ class ForecastClient:
         except ServiceUnavailableError as error:
             self._cache[cache_key] = (time.monotonic(), error)
             raise
-        forecast = Forecast.model_validate(payload)
+        try:
+            forecast = Forecast.model_validate(payload)
+        except ValidationError as error:
+            raise ServiceUnavailableError("The forecast service returned an invalid forecast.") from error
         self._cache[cache_key] = (time.monotonic(), forecast)
+
         return forecast
 
     def events_from_news(self, account_id: str, news_text: str) -> NewsEvents:

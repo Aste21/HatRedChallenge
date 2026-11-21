@@ -7,6 +7,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
+from app.tracing import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,18 @@ class LlmReply(BaseModel):
 
     content: str
     tool_calls: list[ToolCall]
+
+
+class ServiceAccountAuth(httpx.Auth):
+    """Supply the current projected service account token on each HTTP request."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    def auth_flow(self, request: httpx.Request):
+        request.headers["Authorization"] = f"Bearer {self.settings.service_token()}"
+        yield request
+
 
 
 class LlmClient:
@@ -46,7 +59,7 @@ class LlmClient:
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
             timeout=settings.llm_timeout_seconds,
-            http_client=httpx.Client(verify=tls_verification),
+            http_client=httpx.Client(verify=tls_verification, auth=ServiceAccountAuth(settings)),
         )
         self._model = settings.llm_model
 
@@ -75,13 +88,18 @@ class LlmClient:
         Returns:
             The assistant reply text (empty string if the model returned nothing).
         """
-        response = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content or ""
+        with trace_span("qwen.completion") as metadata:
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            metadata["model"] = response.model
+            if response.usage:
+                metadata["prompt_tokens"] = response.usage.prompt_tokens
+                metadata["completion_tokens"] = response.usage.completion_tokens
+            return response.choices[0].message.content or ""
 
     def complete_with_tools(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], temperature: float = 0.2
@@ -96,10 +114,14 @@ class LlmClient:
         Returns:
             The reply text and the function calls the model made.
         """
-        response = self._client.chat.completions.create(
-            model=self.model, messages=messages, tools=tools, tool_choice="auto", temperature=temperature
-        )
-        message = response.choices[0].message
+        with trace_span("qwen.completion") as metadata:
+            response = self._client.chat.completions.create(
+                model=self.model, messages=messages, tools=tools, tool_choice="auto", temperature=temperature
+            )
+            message = response.choices[0].message
+            metadata.update(model=response.model, tool_calls=len(message.tool_calls or []))
+            if response.usage:
+                metadata.update(prompt_tokens=response.usage.prompt_tokens, completion_tokens=response.usage.completion_tokens)
         return LlmReply(
             content=message.content or "",
             tool_calls=[

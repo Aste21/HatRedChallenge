@@ -1,0 +1,12 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata: {name: cfo-app-session}
+parameters:
+  - name: COOKIE
+    generate: expression
+    from: '[a-zA-Z0-9]{32}'
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata: {name: cfo-app-session, namespace: cfo-ai}
+    stringData: {cookie: '${COOKIE}'}
