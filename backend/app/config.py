@@ -6,7 +6,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[1] / "var" / "autonomous-cfo.sqlite3"
 
 
-class Settings(BaseSettings):
+class MailSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    owner_email: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+
+
+class Settings(MailSettings):
     """Runtime configuration read from environment variables (or a local `.env` file in dev).
 
     Attributes:
@@ -31,8 +41,6 @@ class Settings(BaseSettings):
         smtp_password: SMTP password.
     """
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
     llm_base_url: str
     llm_model: str = ""
     llm_api_key: str = "EMPTY"
@@ -46,11 +54,6 @@ class Settings(BaseSettings):
     news_api_url: str = ""
     service_timeout_seconds: float = 10.0
     instrument_timeout_seconds: float = 120.0
-    owner_email: str = ""
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""
 
 
 @lru_cache
