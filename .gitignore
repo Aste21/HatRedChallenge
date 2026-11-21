@@ -1,9 +1,56 @@
 .aider*
-
-__pycache__/
 *.bundle
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# Frontend
 frontend/node_modules/
 frontend/.svelte-kit/
 
-__pycache__/
-*.pyc
+# Secrets and cluster credentials
+.env
+.env/
+.env.*
+!.env.example
+kubeconfig
+*kubeconfig*
+.kube/
+oc.exe
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*secret*.yaml
+*secret*.yml
+*secret*.json
+!example-secret*.yaml
+
+# Rendered / local manifests
+*.local.yaml
+*.local.yml
+*-processed.yaml
+*-processed.yml
+openshift-debug-*
+.odo/
+devfile.yaml.bak
+charts/*.tgz
+.helm/
+kustomize-build/
+rendered-*.yaml
+bin/
+bundle/manifests/*.clusterserviceversion.yaml.bak
+testbin/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
