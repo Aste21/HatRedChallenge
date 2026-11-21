@@ -209,6 +209,29 @@ def test_approval_records_transaction_and_supersedes_alternatives(client: TestCl
     assert second.status_code == 409
 
 
+def test_approval_emails_the_configured_owner_once(
+    client: TestClient, repository: DecisionRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recipient = "demo-owner@example.org"
+    settings = Settings(llm_base_url="http://unused", smtp_host="smtp.example.org",
+                        smtp_user="test", smtp_password="unused", owner_email=recipient)
+    service = ProposalService(
+        settings, FakeForecastClient(make_forecast()), FakeInstrumentAgentClient(), repository
+    )
+    app.dependency_overrides[get_proposal_service] = lambda: service
+    deliver = Mock()
+    monkeypatch.setattr("app.agents.investment.service.send_email", deliver)
+
+    path = "/api/proposals/amalfi-deposit_30d-2025-12-31/decision"
+    response = client.post(path, json={"decision": "approved"})
+    assert response.status_code == 200 and response.json()["notification_status"] == "sent"
+    assert client.post(path, json={"decision": "approved"}).status_code == 409
+    deliver.assert_called_once()
+    assert deliver.call_args.args[1] == recipient
+    notifications = client.get("/api/notifications").json()["notifications"]
+    assert [(row["status"], row["recipient"]) for row in notifications] == [("sent", "Business owner")]
+
+
 def test_decline_records_no_transaction(client: TestClient) -> None:
     response = client.post(
         "/api/proposals/amalfi-deposit_30d-2025-12-31/decision", json={"decision": "declined"}

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.accounts import AccountProfile, get_account
 from app.agents.investment.service import (
+    IN_APP_RECIPIENT,
     DecisionConflictError,
     DecisionResult,
     ProposalBoard,
@@ -122,4 +123,9 @@ def list_notifications(
     Returns:
         The notifications.
     """
-    return NotificationList(notifications=repository.list_notifications(account.id, limit))
+    notifications = repository.list_notifications(account.id, limit)
+    entries = [
+        item if item.recipient == IN_APP_RECIPIENT else item.model_copy(update={"recipient": "Business owner"})
+        for item in notifications
+    ]
+    return NotificationList(notifications=entries)

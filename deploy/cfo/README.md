@@ -20,6 +20,8 @@ Running the command again updates the CFO deployment and reuses its PVC and appl
 .\scripts\deploy-openshift.ps1 -WhatIf
 ```
 
+Approval confirmations use the backend-only `smtp-settings` Secret in `cfo-ai`. Set `SMTP_HOST`, `SMTP_PORT` (STARTTLS), `SMTP_USER`, `SMTP_PASSWORD` and `OWNER_EMAIL`. Each new approval sends its confirmation to the configured owner. Without the Secret, confirmations stay in the application outbox. Restart the backend after rotating SMTP settings.
+
 ## Access and acceptance
 
 Open the public `autonomous-cfo` Route and use the application login shown on the landing page. The demo account shares business data across its sessions. This release uses `/data/cfocus-demo.sqlite3` so the original access-controlled database is preserved on the same PVC. The backend and instrument API are internal. Input policy failures return 422, and a temporarily unavailable NeMo service returns 503. The MLflow experiment `autonomous-cfo-agents` is in workspace `cfo-ai`. Traces record decisions, timings and model metadata.

@@ -43,7 +43,9 @@ spec:
           image: image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend:release
           imagePullPolicy: Always
           ports: [{name: http, containerPort: 8080}]
-          envFrom: [{configMapRef: {name: cfo-backend}}]
+          envFrom:
+            - configMapRef: {name: cfo-backend}
+            - secretRef: {name: smtp-settings, optional: true}
           resources:
             requests: {cpu: 250m, memory: 512Mi}
             limits: {cpu: "1", memory: 2Gi}
