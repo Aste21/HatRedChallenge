@@ -9,20 +9,31 @@ from datetime import date, timedelta
 from decimal import Decimal
 from html import escape
 from pathlib import Path
+from typing import Any, Literal
 
 import httpx
 
 from app.accounts import ACCOUNTS
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.notifications.email import send_email, smtp_configured
 
+FORECAST_HORIZON_DAYS = 90
+PLACEMENT_KINDS = ("fixed_term_deposit", "fixed_term_investment")
 
-HORIZON = 90
+NoticeKind = Literal["balance", "forecast", "investment"]
+
+NOTICE_STYLES: dict[NoticeKind, tuple[str, str, str]] = {
+    "balance": ("Account alert", "#923c37", "#faeeeb"),
+    "forecast": ("Cashflow outlook", "#77511c", "#faf2df"),
+    "investment": ("Investment proposal", "#145e4d", "#e9f4ed"),
+}
 
 
 @dataclass(frozen=True)
 class Notice:
-    kind: str
+    """One e-mail to the owner: headline amount, explanation and where to look in the app."""
+
+    kind: NoticeKind
     subject: str
     title: str
     amount: str
@@ -31,60 +42,111 @@ class Notice:
     action: str
 
 
-def euro(value):
-    return f"{'−' if value < 0 else ''}€{abs(value):,.2f}"
+def format_euro(amount: Decimal | float) -> str:
+    """Format an amount as euros for e-mail texts.
+
+    Args:
+        amount: Amount in EUR.
+
+    Returns:
+        The formatted amount, e.g. `€7,391.53` or `−€1,200.00`.
+    """
+    sign = "−" if amount < 0 else ""
+    return f"{sign}€{abs(amount):,.2f}"
 
 
-def long_date(iso):
-    return date.fromisoformat(iso).strftime("%d %B %Y")
+def format_long_date(iso_date: str) -> str:
+    """Format an ISO calendar date for e-mail texts.
+
+    Args:
+        iso_date: Date as `YYYY-MM-DD`.
+
+    Returns:
+        The date, e.g. `03 July 2025`.
+    """
+    return date.fromisoformat(iso_date).strftime("%d %B %Y")
 
 
-def balance_notice(amount, day):
+def balance_notice(closing_balance: Decimal, booked_on: str) -> Notice:
+    """Build the alert for an account that closed the day below zero.
+
+    Args:
+        closing_balance: The negative closing balance in EUR.
+        booked_on: ISO date of that closing balance.
+
+    Returns:
+        The notice.
+    """
     return Notice(
-        "balance",
-        f"Balance alert | {euro(amount)}",
-        "Your account closed below zero",
-        euro(amount),
-        f"Closing balance on {long_date(day)}",
-        "Review your latest transactions and upcoming payments to see what is due next.",
-        "Dashboard  →  Cashflow",
+        kind="balance",
+        subject=f"Balance alert | {format_euro(closing_balance)}",
+        title="Your account closed below zero",
+        amount=format_euro(closing_balance),
+        caption=f"Closing balance on {format_long_date(booked_on)}",
+        detail="Review your latest transactions and upcoming payments to see what is due next.",
+        action="Dashboard  →  Cashflow",
     )
 
 
-def forecast_notice(day, estimate, current):
+def forecast_notice(shortfall_date: str, projected_balance: float, current_balance: Decimal) -> Notice:
+    """Build the warning for the first forecast day with a negative median balance.
+
+    Args:
+        shortfall_date: ISO date of the first day below zero.
+        projected_balance: Median (p50) forecast balance on that day in EUR.
+        current_balance: The latest closing balance in EUR.
+
+    Returns:
+        The notice.
+    """
     return Notice(
-        "forecast",
-        f"Cashflow forecast | Shortfall on {long_date(day)}",
-        "A cash shortfall is forecast",
-        euro(estimate),
-        f"Projected balance on {long_date(day)}",
-        f"Your latest closing balance is {euro(current)}. This is the first day in the "
-        "next 90 days when the median forecast falls below zero.",
-        "Dashboard  →  Forecast",
+        kind="forecast",
+        subject=f"Cashflow forecast | Shortfall on {format_long_date(shortfall_date)}",
+        title="A cash shortfall is forecast",
+        amount=format_euro(projected_balance),
+        caption=f"Projected balance on {format_long_date(shortfall_date)}",
+        detail=(
+            f"Your latest closing balance is {format_euro(current_balance)}. This is the first day in the "
+            f"next {FORECAST_HORIZON_DAYS} days when the median forecast falls below zero."
+        ),
+        action="Dashboard  →  Forecast",
     )
 
 
-def investment_notice(amount, days):
+def investment_notice(amount: float, term_days: int) -> Notice:
+    """Build the hint that the forecast leaves cash for a fixed-term placement.
+
+    Args:
+        amount: Amount of the proposed placement in EUR.
+        term_days: Term of the placement in days.
+
+    Returns:
+        The notice.
+    """
     return Notice(
-        "investment",
-        f"Deposit proposal | {euro(amount)} for {days} days",
-        "You have cash to set aside",
-        euro(amount),
-        f"Available for a {days}-day deposit",
-        f"Your 90-day forecast leaves room for this {days}-day deposit while keeping "
-        "your estimated cash buffer. Review the terms in your dashboard before you decide.",
-        "Dashboard  →  Proposals",
+        kind="investment",
+        subject=f"Investment proposal | {format_euro(amount)} for {term_days} days",
+        title="You have cash to set aside",
+        amount=format_euro(amount),
+        caption=f"Available for a {term_days}-day placement",
+        detail=(
+            f"Your {FORECAST_HORIZON_DAYS}-day forecast leaves room for this {term_days}-day placement while "
+            "keeping your estimated cash buffer. Review the terms in your dashboard before you decide."
+        ),
+        action="Dashboard  →  Proposals",
     )
 
 
-def deliver(settings, account, notice):
-    styles = {
-        "balance": ("Account alert", "#923c37", "#faeeeb"),
-        "forecast": ("Cashflow outlook", "#77511c", "#faf2df"),
-        "investment": ("Investment proposal", "#145e4d", "#e9f4ed"),
-    }
-    section, accent, tint = styles[notice.kind]
-    business = ACCOUNTS[account].business_name
+def deliver(settings: Settings, account_id: str, notice: Notice) -> None:
+    """Send a notice to the owner as plain text and HTML e-mail.
+
+    Args:
+        settings: Application settings with the SMTP configuration and owner address.
+        account_id: Account the notice is about (its business name heads the e-mail).
+        notice: The notice to send.
+    """
+    section, accent, tint = NOTICE_STYLES[notice.kind]
+    business = ACCOUNTS[account_id].business_name
 
     text = (
         f"{business} | {section}\n\n"
@@ -154,174 +216,236 @@ def deliver(settings, account, notice):
     send_email(settings, settings.owner_email, notice.subject, text, html=html)
 
 
-def send_once(db, settings, account, as_of, key, notice):
-    with db:
-        db.execute("BEGIN IMMEDIATE")
-        latest = db.execute(
-            "SELECT booked_on FROM balance_alerts WHERE account = ?",
-            (account,),
-        ).fetchone()
+def send_once(
+    database: sqlite3.Connection,
+    settings: Settings,
+    account_id: str,
+    as_of: str,
+    notice_key: str,
+    notice: Notice,
+) -> None:
+    """Send a notice unless the same key was already sent or a newer statement was checked meanwhile.
 
+    Args:
+        database: Connection to the alerts database.
+        settings: Application settings with the SMTP configuration.
+        account_id: Account the notice is about.
+        as_of: ISO date of the statement the notice is based on.
+        notice_key: Deduplication key, e.g. `forecast:2025-06-01`.
+        notice: The notice to send.
+
+    Steps:
+        1. Lock the database so parallel checkers cannot both send.
+        2. Skip the notice if a newer statement date was already recorded for the account.
+        3. Record the key and deliver; a failed delivery rolls the record back so the next run retries.
+    """
+    with database:
+        database.execute("BEGIN IMMEDIATE")
+        latest = database.execute(
+            "SELECT booked_on FROM balance_alerts WHERE account = ?",
+            (account_id,),
+        ).fetchone()
         if latest and latest[0] > as_of:
             return
 
-        inserted = db.execute(
+        inserted = database.execute(
             "INSERT OR IGNORE INTO sent_notices VALUES (?, ?)",
-            (account, key),
+            (account_id, notice_key),
         )
         if inserted.rowcount == 1:
-            deliver(settings, account, notice)
+            deliver(settings, account_id, notice)
 
 
-def check_balance(settings, api, db, account):
-    headers = {"X-Account-Id": account}
+def _best_placement(proposals: list[dict[str, Any]], limits: dict[int, float]) -> dict[str, Any] | None:
+    """Pick the placement to mention: the agent's top recommendation, else the largest open offer.
+
+    Args:
+        proposals: Proposals from `GET /api/proposals`.
+        limits: Positive safe-to-lock amounts by term in days.
+
+    Returns:
+        The chosen proposal, or `None` if no open placement fits the forecast limits.
+    """
+    open_placements = [
+        proposal
+        for proposal in proposals
+        if proposal["kind"] in PLACEMENT_KINDS
+        and proposal["status"] == "awaiting_approval"
+        and 0
+        < proposal["amount"]
+        <= limits.get(proposal.get("forecast_limit_days") or proposal["term_days"], 0)
+    ]
+    if not open_placements:
+        return None
+    top_recommendation = next(
+        (
+            proposal
+            for proposal in open_placements
+            if proposal.get("family_rank") == 1 and proposal.get("is_recommended_term")
+        ),
+        None,
+    )
+    return top_recommendation or max(open_placements, key=lambda proposal: proposal["amount"])
+
+
+def check_balance(settings: Settings, api_url: str, database: sqlite3.Connection, account_id: str) -> None:
+    """Check one account and send the balance, shortfall and investment notices that are due.
+
+    Args:
+        settings: Application settings with the SMTP configuration.
+        api_url: Base URL of the backend, without a trailing slash.
+        database: Connection to the alerts database.
+        account_id: Account to check (sent as `X-Account-Id`).
+
+    Steps:
+        1. Fetch the forecast and validate the account and closing balance.
+        2. Alert once when the account closes below zero; reset when it is positive again.
+        3. Warn once per shortfall date when the median forecast first drops below zero.
+        4. If the forecast leaves cash to lock, fetch the proposals board and mention the best open
+           placement once per statement date.
+    """
+    headers = {"X-Account-Id": account_id}
     response = httpx.get(
-        f"{api}/api/forecast",
-        params={"horizon": HORIZON},
+        f"{api_url}/api/forecast",
+        params={"horizon": FORECAST_HORIZON_DAYS},
         headers=headers,
         timeout=30,
     )
     response.raise_for_status()
     forecast = response.json()
-
-    if forecast["account_id"] != account:
+    if forecast["account_id"] != account_id:
         raise ValueError("Unexpected account in forecast")
 
-    day = date.fromisoformat(forecast["as_of"])
-    as_of = day.isoformat()
-    current = Decimal(str(forecast["start_balance"]))
-
-    if not current.is_finite():
+    statement_date = date.fromisoformat(forecast["as_of"])
+    as_of = statement_date.isoformat()
+    current_balance = Decimal(str(forecast["start_balance"]))
+    if not current_balance.is_finite():
         raise ValueError("Invalid closing balance")
 
-    with db:
-        db.execute("BEGIN IMMEDIATE")
-        previous = db.execute(
+    with database:
+        database.execute("BEGIN IMMEDIATE")
+        previous = database.execute(
             "SELECT booked_on, alerted FROM balance_alerts WHERE account = ?",
-            (account,),
+            (account_id,),
         ).fetchone()
-
         if previous and previous[0] > as_of:
             return
-
-        if current < 0 and not (previous and previous[1]):
-            deliver(settings, account, balance_notice(current, as_of))
-
-        db.execute(
+        if current_balance < 0 and not (previous and previous[1]):
+            deliver(settings, account_id, balance_notice(current_balance, as_of))
+        database.execute(
             "INSERT OR REPLACE INTO balance_alerts VALUES (?, ?, ?)",
-            (account, as_of, int(current < 0)),
+            (account_id, as_of, int(current_balance < 0)),
         )
-
-    logging.info("Checked %s: EUR %.2f on %s", account, current, as_of)
+    logging.info("Checked %s: EUR %.2f on %s", account_id, current_balance, as_of)
 
     official = forecast["official"]
-    end = (day + timedelta(days=HORIZON)).isoformat()
-
-    first_low = min(
-        (
-            row for row in official["daily"]
-            if as_of < row["date"] <= end and row["p50"] < 0
-        ),
-        key=lambda row: row["date"],
+    horizon_end = (statement_date + timedelta(days=FORECAST_HORIZON_DAYS)).isoformat()
+    first_shortfall = min(
+        (band for band in official["daily"] if as_of < band["date"] <= horizon_end and band["p50"] < 0),
+        key=lambda band: band["date"],
         default=None,
     )
-
-    if current >= 0 and first_low:
-        low_day = first_low["date"]
-        notice = forecast_notice(low_day, first_low["p50"], current)
-        send_once(db, settings, account, as_of, f"forecast:{low_day}", notice)
+    if current_balance >= 0 and first_shortfall:
+        shortfall_date = first_shortfall["date"]
+        notice = forecast_notice(shortfall_date, first_shortfall["p50"], current_balance)
+        send_once(database, settings, account_id, as_of, f"forecast:{shortfall_date}", notice)
 
     limits = {
-        row["days"]: row["amount"]
-        for row in official["safe_to_lock"]
-        if 0 < row["days"] <= HORIZON and row["amount"] > 0
+        limit["days"]: limit["amount"]
+        for limit in official["safe_to_lock"]
+        if 0 < limit["days"] <= FORECAST_HORIZON_DAYS and limit["amount"] > 0
     }
-    if current <= 0 or not limits:
+    if current_balance <= 0 or not limits:
         return
 
-    response = httpx.get(f"{api}/api/proposals", headers=headers, timeout=150)
+    response = httpx.get(f"{api_url}/api/proposals", headers=headers, timeout=150)
     response.raise_for_status()
     board = response.json()
-
     if board["as_of"] != as_of or board["start_balance"] != forecast["start_balance"]:
         return
 
-    offers = [
-        item for item in board["proposals"]
-        if item["kind"] == "fixed_term_deposit"
-        and item["status"] == "awaiting_approval"
-        and 0 < item["amount"] <= limits.get(item["term_days"], 0)
-    ]
-
-    if offers:
-        offer = max(offers, key=lambda item: item["amount"])
-        notice = investment_notice(offer["amount"], offer["term_days"])
-        send_once(db, settings, account, as_of, f"investment:{as_of}", notice)
+    placement = _best_placement(board["proposals"], limits)
+    if placement is not None:
+        notice = investment_notice(placement["amount"], placement["term_days"])
+        send_once(database, settings, account_id, as_of, f"investment:{as_of}", notice)
 
 
-def sample_notice(kind):
+def sample_notice(kind: NoticeKind) -> Notice:
+    """Build a demo notice from the Amalfi sample data.
+
+    Args:
+        kind: Which notice to build.
+
+    Returns:
+        The notice.
+    """
     if kind == "forecast":
-        return forecast_notice("2025-06-01", -1704.17, 2006.31)
-
+        return forecast_notice("2025-06-01", -1704.17, Decimal("2006.31"))
     if kind == "investment":
         return investment_notice(5000, 30)
 
     root = Path(__file__).resolve().parents[3]
-    statement = root / "frontend/src/lib/server/statements/amalfi.json"
-    history = json.loads(statement.read_text(encoding="utf-8"))["history"]
+    statement_path = root / "frontend/src/lib/server/statements/amalfi.json"
+    history = json.loads(statement_path.read_text(encoding="utf-8"))["history"]
     lowest = min(history, key=lambda row: row["balance"])
-
     if lowest["balance"] >= 0:
         raise ValueError("No negative closing balance in the sample statement")
-
     return balance_notice(Decimal(lowest["balance"]) / 100, lowest["date"])
 
 
-def main():
+def main() -> None:
+    """Run the alert checker, or send demo e-mails with `--demo`.
+
+    Steps:
+        1. Parse the arguments and require SMTP settings.
+        2. With `--demo`, send the requested sample notices once and exit.
+        3. Otherwise open the alerts database and check every account each interval.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
-    parser.add_argument("--interval", type=int, default=300)
+    parser.add_argument("--interval", type=int, default=300, help="Seconds between checks")
     parser.add_argument(
         "--demo",
         nargs="?",
         const="balance",
         choices=("balance", "forecast", "investment", "all"),
+        help="Send sample notices and exit",
     )
-    args = parser.parse_args()
-
-    if args.interval < 1:
+    arguments = parser.parse_args()
+    if arguments.interval < 1:
         parser.error("--interval must be at least 1 second")
 
     settings = get_settings()
     if not smtp_configured(settings) or not settings.smtp_password:
         parser.error("Set OWNER_EMAIL, SMTP_HOST, SMTP_USER and SMTP_PASSWORD in backend/.env")
 
-    if args.demo:
-        kinds = ("balance", "forecast", "investment") if args.demo == "all" else (args.demo,)
+    if arguments.demo:
+        kinds: tuple[NoticeKind, ...] = (
+            ("balance", "forecast", "investment") if arguments.demo == "all" else (arguments.demo,)
+        )
         for kind in kinds:
             deliver(settings, "amalfi", sample_notice(kind))
             print(f"SMTP accepted the {kind} message.")
         return
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    path = settings.database_path.with_name("balance-alerts.sqlite3")
-    path.parent.mkdir(parents=True, exist_ok=True)
+    database_path = settings.database_path.with_name("balance-alerts.sqlite3")
+    database_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with closing(sqlite3.connect(path, timeout=30)) as db:
-        db.executescript("""
+    with closing(sqlite3.connect(database_path, timeout=30)) as database:
+        database.executescript("""
             CREATE TABLE IF NOT EXISTS balance_alerts
                 (account TEXT PRIMARY KEY, booked_on TEXT NOT NULL, alerted INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS sent_notices
                 (account TEXT, notice_key TEXT, PRIMARY KEY (account, notice_key));
         """)
-
         while True:
-            for account in ACCOUNTS:
+            for account_id in ACCOUNTS:
                 try:
-                    check_balance(settings, args.api_url.rstrip("/"), db, account)
+                    check_balance(settings, arguments.api_url.rstrip("/"), database, account_id)
                 except (httpx.HTTPError, OSError, sqlite3.Error, KeyError, ValueError, ArithmeticError):
-                    logging.exception("Balance check failed for %s", account)
-            time.sleep(args.interval)
+                    logging.exception("Balance check failed for %s", account_id)
+            time.sleep(arguments.interval)
 
 
 if __name__ == "__main__":
