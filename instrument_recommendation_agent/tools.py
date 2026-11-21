@@ -1,6 +1,9 @@
 from datetime import date, timedelta
+
 from langchain.tools import tool
 
+
+# Fictional offers for the demo.
 OFFERS = {
     "deposit_30d": {
         "name": "Demo 30-day deposit",
@@ -21,8 +24,11 @@ OFFERS = {
 
 @tool
 def list_offers() -> list[dict]:
-    """List demo term deposits and their terms. Use the IDs to evaluate offers."""
-    return [{"offer_id": offer_id, **terms} for offer_id, terms in OFFERS.items()]
+    """List demo term deposits and the offer IDs used by evaluate_offer."""
+    return [
+        {"offer_id": offer_id, **terms}
+        for offer_id, terms in OFFERS.items()
+    ]
 
 
 def make_evaluate_offer(
@@ -32,9 +38,11 @@ def make_evaluate_offer(
     minimum_reserve_pln: int,
     forecast: dict[date, int],
 ):
+    """Create an evaluation tool bound to the current request's forecast."""
+
     @tool
     def evaluate_offer(offer_id: str) -> dict:
-        """Check whether a catalog offer fits the balance forecast and cash reserve."""
+        """Evaluate one catalog offer by ID against the forecast and cash reserve."""
         offer = OFFERS.get(offer_id)
         if offer is None:
             return {"offer_id": offer_id, "status": "unknown_offer"}
@@ -45,30 +53,41 @@ def make_evaluate_offer(
             "release_date": release_date.isoformat(),
         }
 
-        if not forecast or max(forecast) < release_date:
-            return {**result, "status": "insufficient_forecast"}
+        forecast_through = max(forecast, default=as_of)
+        if forecast_through < release_date:
+            return {
+                **result,
+                "status": "insufficient_forecast",
+                "forecast_through": forecast_through.isoformat(),
+            }
 
         balances_during_term = [
-            balance for day, balance in forecast.items() if as_of <= day <= release_date
+            balance
+            for day, balance in forecast.items()
+            if as_of <= day <= release_date
         ]
         lowest_balance = min([current_balance_pln, *balances_during_term])
-        available = max(0, lowest_balance - minimum_reserve_pln)
-        max_amount = min(available, offer["max_amount_pln"])
+        available_pln = max(0, lowest_balance - minimum_reserve_pln)
+        max_amount_pln = min(available_pln, offer["max_amount_pln"])
 
-        if max_amount < offer["min_amount_pln"]:
+        if max_amount_pln < offer["min_amount_pln"]:
             return {
                 **result,
                 "status": "below_minimum",
-                "available_pln": available,
+                "available_pln": available_pln,
                 "required_minimum_pln": offer["min_amount_pln"],
+                "reserve_shortfall_pln": max(
+                    0, minimum_reserve_pln - lowest_balance
+                ),
             }
 
         return {
             **result,
             "status": "eligible",
-            "provisional_max_amount_pln": max_amount,
+            "provisional_max_amount_pln": max_amount_pln,
             "lowest_forecast_balance_pln": lowest_balance,
             "annual_rate_pct": offer["annual_rate_pct"],
         }
 
     return evaluate_offer
+    
