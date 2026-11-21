@@ -18,7 +18,6 @@ class Settings(BaseSettings):
         llm_timeout_seconds: Request timeout for a single LLM call.
         database_path: SQLite file for chat history, decisions and the notification outbox
             (mount a PVC at its directory in-cluster).
-        account_id: Account id of the business in the forecast service.
         forecast_api_url: Base URL of the forecast service (`account-prediction/`). Empty = not connected.
         instrument_api_url: Base URL of the instrument recommendation agent. Empty = not connected.
         news_api_url: Base URL of the news service (`news/`). Empty = not connected.
@@ -40,7 +39,6 @@ class Settings(BaseSettings):
     llm_verify_tls: bool = True
     llm_timeout_seconds: float = 60.0
     database_path: Path = DEFAULT_DATABASE_PATH
-    account_id: str = "amalfi"
     forecast_api_url: str = ""
     instrument_api_url: str = ""
     news_api_url: str = ""

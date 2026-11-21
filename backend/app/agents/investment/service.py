@@ -97,13 +97,15 @@ class ProposalService:
         self._instrument_agent_client = instrument_agent_client
         self._repository = repository
         self._lock = threading.Lock()
-        self._cached: (
-            tuple[float, tuple[datetime.date, str], list[Proposal], NotificationDraft | None, list[str]]
-            | None
-        ) = None
+        self._cached: dict[
+            str, tuple[float, tuple[datetime.date, str], list[Proposal], NotificationDraft | None, list[str]]
+        ] = {}
 
-    def board(self) -> ProposalBoard:
-        """Current proposals with their decision status.
+    def board(self, account_id: str) -> ProposalBoard:
+        """Current proposals for an account with their decision status.
+
+        Args:
+            account_id: The signed-in account.
 
         Returns:
             The proposals page content.
@@ -114,7 +116,7 @@ class ProposalService:
                for 15 minutes, because it calls the LLM and takes several seconds.
             3. Merge the stored decisions: an approval in a group supersedes its alternatives.
         """
-        forecast = self._forecast_client.fetch_forecast()
+        forecast = self._forecast_client.fetch_forecast(account_id)
         forecast_key = (
             forecast.as_of,
             json.dumps(
@@ -122,7 +124,7 @@ class ProposalService:
             ),
         )
         with self._lock:
-            cached = self._cached
+            cached = self._cached.get(account_id)
             if (
                 cached is None
                 or cached[1] != forecast_key
@@ -131,12 +133,17 @@ class ProposalService:
                 proposals, draft, warnings = self._build_proposals(forecast)
                 cached = (time.monotonic(), forecast_key, proposals, draft, warnings)
                 if not warnings:
-                    self._cached = cached
+                    self._cached[account_id] = cached
         _, (as_of, _), proposals, draft, warnings = cached
 
-        decisions = self._repository.list_decisions()
+        decisions = self._repository.list_decisions(account_id)
+        # Only approvals on this board use up the cash; an approval from an older statement or forecast
+        # (other proposal ids) must not block today's alternatives.
+        current_ids = {proposal.id for proposal in proposals}
         approved_groups = {
-            decision.proposal_group for decision in decisions.values() if decision.decision == "approved"
+            decision.proposal_group
+            for proposal_id, decision in decisions.items()
+            if decision.decision == "approved" and proposal_id in current_ids
         }
         views = []
         for proposal in proposals:
@@ -189,10 +196,11 @@ class ProposalService:
             proposals.extend(deposit_proposal(forecast, offer) for offer in recommendation.offers)
         return proposals, draft, warnings
 
-    def decide(self, proposal_id: str, decision: Decision) -> DecisionResult:
+    def decide(self, account_id: str, proposal_id: str, decision: Decision) -> DecisionResult:
         """Record the owner's decision; an approval creates a simulated transaction and a notification.
 
         Args:
+            account_id: The signed-in account.
             proposal_id: Id of the proposal.
             decision: `approved` or `declined`.
 
@@ -206,7 +214,7 @@ class ProposalService:
             3. Store everything in one transaction, then deliver the e-mail if SMTP is configured
                (otherwise it stays in the in-app outbox).
         """
-        board = self.board()
+        board = self.board(account_id)
         proposal = next((item for item in board.proposals if item.id == proposal_id), None)
         if proposal is None:
             raise ProposalNotFoundError(proposal_id)
@@ -246,7 +254,7 @@ class ProposalService:
                 status="queued",
                 created_at=decided_at,
             )
-        self._repository.record_decision(stored_decision, transaction, notification)
+        self._repository.record_decision(account_id, stored_decision, transaction, notification)
 
         notification_status = self._deliver(notification) if notification is not None else None
         updated = proposal.model_copy(update={"status": decision, "decided_at": decided_at})

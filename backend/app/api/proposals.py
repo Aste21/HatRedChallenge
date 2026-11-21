@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from app.accounts import AccountProfile, get_account
 from app.agents.investment.service import (
     DecisionConflictError,
     DecisionResult,
@@ -41,17 +42,21 @@ class NotificationList(BaseModel):
 
 
 @router.get("/proposals", response_model=ProposalBoard)
-def list_proposals(service: Annotated[ProposalService, Depends(get_proposal_service)]) -> ProposalBoard:
+def list_proposals(
+    account: Annotated[AccountProfile, Depends(get_account)],
+    service: Annotated[ProposalService, Depends(get_proposal_service)],
+) -> ProposalBoard:
     """Current proposals (credit line, fixed-term deposits) with their decision status.
 
     Args:
+        account: The signed-in account.
         service: Injected proposal service.
 
     Returns:
         The proposals page content.
     """
     try:
-        return service.board()
+        return service.board(account.id)
     except ServiceUnavailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -60,6 +65,7 @@ def list_proposals(service: Annotated[ProposalService, Depends(get_proposal_serv
 def decide_proposal(
     proposal_id: str,
     request: DecisionRequest,
+    account: Annotated[AccountProfile, Depends(get_account)],
     service: Annotated[ProposalService, Depends(get_proposal_service)],
 ) -> DecisionResult:
     """Approve or decline a proposal. Approval records a simulated transaction and a notification.
@@ -67,13 +73,14 @@ def decide_proposal(
     Args:
         proposal_id: Id of the proposal.
         request: The decision.
+        account: The signed-in account.
         service: Injected proposal service.
 
     Returns:
         The updated proposal, the simulated transaction and the notification status.
     """
     try:
-        return service.decide(proposal_id, request.decision)
+        return service.decide(account.id, proposal_id, request.decision)
     except ProposalNotFoundError as error:
         raise HTTPException(status_code=404, detail="This proposal is no longer available.") from error
     except DecisionConflictError as error:
@@ -84,31 +91,35 @@ def decide_proposal(
 
 @router.get("/transactions", response_model=TransactionList)
 def list_transactions(
+    account: Annotated[AccountProfile, Depends(get_account)],
     repository: Annotated[DecisionRepository, Depends(get_decision_repository)],
 ) -> TransactionList:
     """Simulated transactions, newest first.
 
     Args:
+        account: The signed-in account.
         repository: Injected decision store.
 
     Returns:
         The simulated transactions.
     """
-    return TransactionList(transactions=repository.list_transactions())
+    return TransactionList(transactions=repository.list_transactions(account.id))
 
 
 @router.get("/notifications", response_model=NotificationList)
 def list_notifications(
+    account: Annotated[AccountProfile, Depends(get_account)],
     repository: Annotated[DecisionRepository, Depends(get_decision_repository)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> NotificationList:
     """Notification outbox, newest first.
 
     Args:
+        account: The signed-in account.
         repository: Injected decision store.
         limit: Maximum number of notifications.
 
     Returns:
         The notifications.
     """
-    return NotificationList(notifications=repository.list_notifications(limit))
+    return NotificationList(notifications=repository.list_notifications(account.id, limit))

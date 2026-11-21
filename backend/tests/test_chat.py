@@ -47,7 +47,7 @@ def client(tmp_path: Path, fake_llm_client: FakeLlmClient) -> Iterator[TestClien
     app.dependency_overrides[get_conversation_repository] = lambda: repository
     app.dependency_overrides[get_business_snapshot] = lambda: ""
     try:
-        yield TestClient(app)
+        yield TestClient(app, headers={"X-Account-Id": "amalfi"})
     finally:
         app.dependency_overrides.clear()
 

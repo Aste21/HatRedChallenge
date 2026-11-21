@@ -101,23 +101,20 @@ class ForecastClient:
     def __init__(
         self,
         service_client: ServiceClient,
-        account_id: str,
-        load_events: Callable[[], list[dict[str, Any]]],
+        load_events: Callable[[str], list[dict[str, Any]]],
         news_timeout_seconds: float,
     ) -> None:
-        """Bind the client to one account.
+        """Wire the client to the forecast service.
 
         Args:
             service_client: HTTP client pointed at the forecast service.
-            account_id: Account id known to the forecast service.
-            load_events: Returns the news events the owner applied; they are sent with every forecast.
+            load_events: Returns the news events an account applied; they are sent with every forecast.
             news_timeout_seconds: Timeout for turning news into events, which calls the LLM.
         """
         self._service_client = service_client
-        self._account_id = account_id
         self._load_events = load_events
         self._news_timeout_seconds = news_timeout_seconds
-        self._cache: dict[tuple[int, str], tuple[float, Forecast | ServiceUnavailableError]] = {}
+        self._cache: dict[tuple[str, int, str], tuple[float, Forecast | ServiceUnavailableError]] = {}
 
     @property
     def configured(self) -> bool:
@@ -128,10 +125,11 @@ class ForecastClient:
         """
         return self._service_client.configured
 
-    def fetch_forecast(self, horizon_days: int = 90) -> Forecast:
-        """Forecast the account balance for the next days.
+    def fetch_forecast(self, account_id: str, horizon_days: int = 90) -> Forecast:
+        """Forecast an account's balance for the next days.
 
         Args:
+            account_id: Account id known to the forecast service.
             horizon_days: Number of days to forecast (7–365).
 
         Returns:
@@ -144,8 +142,8 @@ class ForecastClient:
                service that is down does not slow down every page by the connection timeout.
             3. Otherwise ask the forecast service and remember the forecast or the failure.
         """
-        events = self._load_events()
-        cache_key = (horizon_days, json.dumps(events, sort_keys=True))
+        events = self._load_events(account_id)
+        cache_key = (account_id, horizon_days, json.dumps(events, sort_keys=True))
         cached = self._cache.get(cache_key)
         if cached is not None:
             stored_at, result = cached
@@ -165,7 +163,7 @@ class ForecastClient:
                 "POST",
                 "/forecast",
                 json={
-                    "account_id": self._account_id,
+                    "account_id": account_id,
                     "horizon": horizon_days,
                     "lock_days": lock_days,
                     "events": events,
@@ -178,10 +176,11 @@ class ForecastClient:
         self._cache[cache_key] = (time.monotonic(), forecast)
         return forecast
 
-    def events_from_news(self, news_text: str) -> NewsEvents:
-        """Ask the forecast service how one news item changes this account's future cash flow.
+    def events_from_news(self, account_id: str, news_text: str) -> NewsEvents:
+        """Ask the forecast service how one news item changes an account's future cash flow.
 
         Args:
+            account_id: Account id known to the forecast service.
             news_text: Headline and summary of the article.
 
         Returns:
@@ -191,7 +190,7 @@ class ForecastClient:
             "POST",
             "/news/events",
             timeout_seconds=self._news_timeout_seconds,
-            json={"account_id": self._account_id, "news": news_text[:MAX_NEWS_TEXT_LENGTH]},
+            json={"account_id": account_id, "news": news_text[:MAX_NEWS_TEXT_LENGTH]},
         )
         return NewsEvents(events=payload.get("events", []), rejected_count=len(payload.get("rejected", [])))
 
@@ -206,7 +205,6 @@ def get_forecast_client() -> ForecastClient:
     settings = get_settings()
     return ForecastClient(
         ServiceClient("forecast service", settings.forecast_api_url, settings.service_timeout_seconds),
-        settings.account_id,
         get_news_impact_repository().all_events,
         settings.instrument_timeout_seconds,
     )

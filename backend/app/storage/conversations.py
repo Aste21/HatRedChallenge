@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.storage.schema import add_account_column
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
@@ -77,6 +78,7 @@ class ConversationRepository:
         database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            add_account_column(connection, "conversations")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -94,10 +96,11 @@ class ConversationRepository:
         finally:
             connection.close()
 
-    def list_conversations(self, limit: int = 50) -> list[ConversationSummary]:
-        """List the most recently active conversations.
+    def list_conversations(self, account_id: str, limit: int = 50) -> list[ConversationSummary]:
+        """List the account's most recently active conversations.
 
         Args:
+            account_id: The signed-in account.
             limit: Maximum number of conversations to return.
 
         Returns:
@@ -106,24 +109,25 @@ class ConversationRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT id, title, created_at, updated_at FROM conversations "
-                "ORDER BY updated_at DESC LIMIT ?",
-                (limit,),
+                "WHERE account_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (account_id, limit),
             ).fetchall()
         return [ConversationSummary(**dict(row)) for row in rows]
 
-    def get_conversation(self, conversation_id: str) -> Conversation | None:
-        """Load a conversation with all of its messages.
+    def get_conversation(self, account_id: str, conversation_id: str) -> Conversation | None:
+        """Load one of the account's conversations with all of its messages.
 
         Args:
+            account_id: The signed-in account.
             conversation_id: Id of the conversation.
 
         Returns:
-            The conversation, or `None` if it does not exist.
+            The conversation, or `None` if it does not exist or belongs to another account.
         """
         with self._connect() as connection:
             conversation_row = connection.execute(
-                "SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?",
-                (conversation_id,),
+                "SELECT id, title, created_at, updated_at FROM conversations WHERE id = ? AND account_id = ?",
+                (conversation_id, account_id),
             ).fetchone()
             if conversation_row is None:
                 return None
@@ -136,10 +140,11 @@ class ConversationRepository:
             messages=[StoredMessage(**dict(row)) for row in message_rows],
         )
 
-    def create_conversation(self, title: str) -> ConversationSummary:
-        """Create an empty conversation.
+    def create_conversation(self, account_id: str, title: str) -> ConversationSummary:
+        """Create an empty conversation for the account.
 
         Args:
+            account_id: The signed-in account.
             title: Human-readable heading for the history list.
 
         Returns:
@@ -149,8 +154,9 @@ class ConversationRepository:
         summary = ConversationSummary(id=uuid.uuid4().hex, title=title, created_at=now, updated_at=now)
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (summary.id, summary.title, summary.created_at, summary.updated_at),
+                "INSERT INTO conversations (id, title, created_at, updated_at, account_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (summary.id, summary.title, summary.created_at, summary.updated_at, account_id),
             )
         return summary
 
@@ -174,17 +180,20 @@ class ConversationRepository:
             )
             connection.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, conversation_id))
 
-    def delete_conversation(self, conversation_id: str) -> bool:
-        """Delete a conversation and its messages.
+    def delete_conversation(self, account_id: str, conversation_id: str) -> bool:
+        """Delete one of the account's conversations and its messages.
 
         Args:
+            account_id: The signed-in account.
             conversation_id: Id of the conversation.
 
         Returns:
             `True` if something was deleted.
         """
         with self._connect() as connection:
-            cursor = connection.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+            cursor = connection.execute(
+                "DELETE FROM conversations WHERE id = ? AND account_id = ?", (conversation_id, account_id)
+            )
         return cursor.rowcount > 0
 
 

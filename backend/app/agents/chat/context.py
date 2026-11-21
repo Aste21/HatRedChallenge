@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends
 
+from app.accounts import AccountProfile, get_account
 from app.agents.investment.agent import format_euro
 from app.agents.news.client import NewsClient, get_news_client
 from app.forecasting.client import Forecast, ForecastClient, get_forecast_client
@@ -57,11 +58,12 @@ def _forecast_lines(forecast: Forecast) -> list[str]:
 
 
 def build_business_snapshot(
-    forecast_client: ForecastClient, news_client: NewsClient, repository: DecisionRepository
+    account_id: str, forecast_client: ForecastClient, news_client: NewsClient, repository: DecisionRepository
 ) -> str:
     """Collect the latest figures from the team's services so the chat can answer with real numbers.
 
     Args:
+        account_id: The signed-in account.
         forecast_client: Client for the forecast service.
         news_client: Client for the news service.
         repository: Store with simulated transactions.
@@ -78,11 +80,11 @@ def build_business_snapshot(
     lines: list[str] = []
     if forecast_client.configured:
         try:
-            lines.extend(_forecast_lines(forecast_client.fetch_forecast()))
+            lines.extend(_forecast_lines(forecast_client.fetch_forecast(account_id)))
         except ServiceUnavailableError:
             lines.append("The balance forecast is not available right now.")
 
-    transactions = repository.list_transactions()[:MAX_TRANSACTIONS]
+    transactions = repository.list_transactions(account_id)[:MAX_TRANSACTIONS]
     if transactions:
         lines.append(
             "Already approved (simulated, no real money moved): "
@@ -107,6 +109,7 @@ def build_business_snapshot(
 
 
 def get_business_snapshot(
+    account: Annotated[AccountProfile, Depends(get_account)],
     forecast_client: Annotated[ForecastClient, Depends(get_forecast_client)],
     news_client: Annotated[NewsClient, Depends(get_news_client)],
     repository: Annotated[DecisionRepository, Depends(get_decision_repository)],
@@ -114,6 +117,7 @@ def get_business_snapshot(
     """FastAPI dependency that builds the business snapshot for one chat request.
 
     Args:
+        account: The signed-in account.
         forecast_client: Injected forecast client.
         news_client: Injected news client.
         repository: Injected decision store.
@@ -121,4 +125,4 @@ def get_business_snapshot(
     Returns:
         The snapshot text.
     """
-    return build_business_snapshot(forecast_client, news_client, repository)
+    return build_business_snapshot(account.id, forecast_client, news_client, repository)

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.storage.conversations import _to_iso
+from app.storage.schema import add_account_column
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS proposal_decisions (
@@ -89,6 +90,8 @@ class DecisionRepository:
         database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            for table in ("proposal_decisions", "simulated_transactions", "notifications"):
+                add_account_column(connection, table)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -105,18 +108,26 @@ class DecisionRepository:
         finally:
             connection.close()
 
-    def list_decisions(self) -> dict[str, StoredDecision]:
-        """Load all decisions.
+    def list_decisions(self, account_id: str) -> dict[str, StoredDecision]:
+        """Load the account's decisions.
+
+        Args:
+            account_id: The signed-in account.
 
         Returns:
             Decisions keyed by proposal id.
         """
         with self._connect() as connection:
-            rows = connection.execute("SELECT * FROM proposal_decisions").fetchall()
+            rows = connection.execute(
+                "SELECT proposal_id, proposal_group, decision, title, amount, decided_at "
+                "FROM proposal_decisions WHERE account_id = ?",
+                (account_id,),
+            ).fetchall()
         return {row["proposal_id"]: StoredDecision(**dict(row)) for row in rows}
 
     def record_decision(
         self,
+        account_id: str,
         decision: StoredDecision,
         transaction: SimulatedTransaction | None,
         notification: StoredNotification | None,
@@ -124,13 +135,15 @@ class DecisionRepository:
         """Store a decision together with its simulated transaction and notification in one transaction.
 
         Args:
+            account_id: The signed-in account.
             decision: The owner's decision.
             transaction: The simulated transaction for an approval, `None` for a decline.
             notification: The notification to enqueue, if any.
         """
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO proposal_decisions VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO proposal_decisions (proposal_id, proposal_group, decision, title, amount, "
+                "decided_at, account_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     decision.proposal_id,
                     decision.proposal_group,
@@ -138,11 +151,13 @@ class DecisionRepository:
                     decision.title,
                     decision.amount,
                     decision.decided_at,
+                    account_id,
                 ),
             )
             if transaction is not None:
                 connection.execute(
-                    "INSERT INTO simulated_transactions VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO simulated_transactions (id, proposal_id, kind, description, amount, "
+                    "created_at, account_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         transaction.id,
                         transaction.proposal_id,
@@ -150,11 +165,13 @@ class DecisionRepository:
                         transaction.description,
                         transaction.amount,
                         transaction.created_at,
+                        account_id,
                     ),
                 )
             if notification is not None:
                 connection.execute(
-                    "INSERT INTO notifications VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO notifications (id, recipient, subject, body, status, created_at, "
+                    "account_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         notification.id,
                         notification.recipient,
@@ -162,6 +179,7 @@ class DecisionRepository:
                         notification.body,
                         notification.status,
                         notification.created_at,
+                        account_id,
                     ),
                 )
 
@@ -175,22 +193,28 @@ class DecisionRepository:
         with self._connect() as connection:
             connection.execute("UPDATE notifications SET status = ? WHERE id = ?", (status, notification_id))
 
-    def list_transactions(self) -> list[SimulatedTransaction]:
-        """List simulated transactions, newest first.
+    def list_transactions(self, account_id: str) -> list[SimulatedTransaction]:
+        """List the account's simulated transactions, newest first.
+
+        Args:
+            account_id: The signed-in account.
 
         Returns:
             The simulated transactions.
         """
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM simulated_transactions ORDER BY created_at DESC"
+                "SELECT id, proposal_id, kind, description, amount, created_at FROM simulated_transactions "
+                "WHERE account_id = ? ORDER BY created_at DESC",
+                (account_id,),
             ).fetchall()
         return [SimulatedTransaction(**dict(row)) for row in rows]
 
-    def list_notifications(self, limit: int = 50) -> list[StoredNotification]:
-        """List notifications in the outbox, newest first.
+    def list_notifications(self, account_id: str, limit: int = 50) -> list[StoredNotification]:
+        """List the account's notifications in the outbox, newest first.
 
         Args:
+            account_id: The signed-in account.
             limit: Maximum number of notifications.
 
         Returns:
@@ -198,7 +222,9 @@ class DecisionRepository:
         """
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?", (limit,)
+                "SELECT id, recipient, subject, body, status, created_at FROM notifications "
+                "WHERE account_id = ? ORDER BY created_at DESC LIMIT ?",
+                (account_id, limit),
             ).fetchall()
         return [StoredNotification(**dict(row)) for row in rows]
 

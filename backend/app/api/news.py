@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from app.accounts import AccountProfile, get_account
 from app.forecasting.client import ForecastClient, get_forecast_client
 from app.service_client import ServiceUnavailableError
 from app.storage.decisions import now_iso
@@ -29,22 +30,25 @@ class NewsImpactList(BaseModel):
 
 @router.get("/impacts", response_model=NewsImpactList)
 def list_news_impacts(
+    account: Annotated[AccountProfile, Depends(get_account)],
     repository: Annotated[NewsImpactRepository, Depends(get_news_impact_repository)],
 ) -> NewsImpactList:
     """List the articles applied to the forecast with the events derived from them.
 
     Args:
+        account: The signed-in account.
         repository: Injected news impact store.
 
     Returns:
         The applied news impacts.
     """
-    return NewsImpactList(impacts=repository.list_impacts())
+    return NewsImpactList(impacts=repository.list_impacts(account.id))
 
 
 @router.post("/impacts", response_model=NewsImpact)
 def apply_news_impact(
     request: NewsImpactRequest,
+    account: Annotated[AccountProfile, Depends(get_account)],
     forecast_client: Annotated[ForecastClient, Depends(get_forecast_client)],
     repository: Annotated[NewsImpactRepository, Depends(get_news_impact_repository)],
 ) -> NewsImpact:
@@ -52,6 +56,7 @@ def apply_news_impact(
 
     Args:
         request: The article.
+        account: The signed-in account.
         forecast_client: Injected forecast client, which also turns news into events.
         repository: Injected news impact store.
 
@@ -64,7 +69,7 @@ def apply_news_impact(
     """
     news_text = f"{request.title}\n\n{request.summary}".strip()
     try:
-        derived = forecast_client.events_from_news(news_text)
+        derived = forecast_client.events_from_news(account.id, news_text)
     except ServiceUnavailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     impact = NewsImpact(
@@ -74,24 +79,26 @@ def apply_news_impact(
         rejected_count=derived.rejected_count,
         created_at=now_iso(),
     )
-    repository.save_impact(impact)
+    repository.save_impact(account.id, impact)
     return impact
 
 
 @router.delete("/impacts/{article_id}", status_code=204)
 def remove_news_impact(
     article_id: str,
+    account: Annotated[AccountProfile, Depends(get_account)],
     repository: Annotated[NewsImpactRepository, Depends(get_news_impact_repository)],
 ) -> Response:
     """Stop taking an article into account in the forecast.
 
     Args:
         article_id: Id of the article.
+        account: The signed-in account.
         repository: Injected news impact store.
 
     Returns:
         An empty 204 response.
     """
-    if not repository.delete_impact(article_id):
+    if not repository.delete_impact(account.id, article_id):
         raise HTTPException(status_code=404, detail="This article is not part of the forecast.")
     return Response(status_code=204)

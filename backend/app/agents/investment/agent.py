@@ -171,7 +171,7 @@ def deposit_proposal(forecast: Forecast, offer: InstrumentOffer) -> Proposal:
     capped = offer.max_amount < limit.amount
     cap_note = f", capped at the offer's maximum of {format_euro(offer.max_amount)}" if capped else ""
     return Proposal(
-        id=f"{offer.offer_id}-{forecast.as_of.isoformat()}",
+        id=f"{forecast.account_id}-{offer.offer_id}-{forecast.as_of.isoformat()}",
         group=SURPLUS_GROUP,
         kind="fixed_term_deposit",
         title=f"Put {format_euro(offer.max_amount)} into a {offer.term_days}-day deposit",
@@ -227,7 +227,7 @@ def credit_line_proposal(forecast: Forecast) -> Proposal | None:
         return None
     credit_amount = math.ceil(-lowest_day.p5 / CREDIT_LINE_ROUNDING_EUR) * CREDIT_LINE_ROUNDING_EUR
     return Proposal(
-        id=f"credit_line-{forecast.as_of.isoformat()}",
+        id=f"{forecast.account_id}-credit_line-{forecast.as_of.isoformat()}",
         group=LIQUIDITY_GROUP,
         kind="credit_line",
         title=f"Arrange a credit line of {format_euro(credit_amount)}",

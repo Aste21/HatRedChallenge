@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from openai import OpenAIError
 from pydantic import BaseModel, Field
 
+from app.accounts import AccountProfile, get_account
 from app.agents.chat.agent import ChatMessage, PageContext, answer, generate_title
 from app.agents.chat.context import get_business_snapshot
 from app.llm import LlmClient, get_llm_client
@@ -38,6 +39,7 @@ class ChatResponse(BaseModel):
 @router.post("", response_model=ChatResponse)
 def post_chat(
     request: ChatRequest,
+    account: Annotated[AccountProfile, Depends(get_account)],
     llm_client: Annotated[LlmClient, Depends(get_llm_client)],
     repository: Annotated[ConversationRepository, Depends(get_conversation_repository)],
     business_snapshot: Annotated[str, Depends(get_business_snapshot)],
@@ -46,6 +48,7 @@ def post_chat(
 
     Args:
         request: The new message, the optional conversation it belongs to and the visible page content.
+        account: The signed-in account.
         llm_client: Injected LLM client.
         repository: Injected chat history store.
         business_snapshot: Latest forecast, approved actions and news, for answers with real numbers.
@@ -66,7 +69,7 @@ def post_chat(
     conversation: ConversationSummary | None = None
     history: list[ChatMessage] = []
     if request.conversation_id is not None:
-        conversation = repository.get_conversation(request.conversation_id)
+        conversation = repository.get_conversation(account.id, request.conversation_id)
         if conversation is None:
             raise HTTPException(status_code=404, detail="This conversation no longer exists.")
         history = [
@@ -75,7 +78,7 @@ def post_chat(
     history.append(ChatMessage(role="user", content=question))
 
     try:
-        reply = answer(llm_client, history, request.page_context, business_snapshot)
+        reply = answer(llm_client, history, request.page_context, business_snapshot, account)
     except OpenAIError as error:
         logger.exception("LLM call failed")
         raise HTTPException(
@@ -84,6 +87,6 @@ def post_chat(
     reply = reply.strip() or "I have no answer to that yet."
 
     if conversation is None:
-        conversation = repository.create_conversation(generate_title(llm_client, question))
+        conversation = repository.create_conversation(account.id, generate_title(llm_client, question))
     repository.append_exchange(conversation.id, question, reply)
     return ChatResponse(conversation_id=conversation.id, title=conversation.title, reply=reply)

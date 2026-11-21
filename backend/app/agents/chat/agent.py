@@ -5,12 +5,13 @@ from typing import Literal
 from openai import OpenAIError
 from pydantic import BaseModel, Field
 
+from app.accounts import AccountProfile
 from app.llm import LlmClient
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are the CFO assistant of Pizzeria Amalfi, a small restaurant in Frankfurt owned by Vincenzo Amalfi. "
+    "You are the CFO assistant of {business_name}, {description}. "
     "Answer in plain, friendly language a non-expert understands. Keep answers short. "
     "Never invent numbers: if you do not have the data, say so. "
     "You only propose actions; the owner always decides."
@@ -57,6 +58,7 @@ def answer(
     history: list[ChatMessage],
     page_context: PageContext | None = None,
     business_snapshot: str = "",
+    account: AccountProfile | None = None,
 ) -> str:
     """Generate the assistant's next reply for the given conversation.
 
@@ -65,6 +67,7 @@ def answer(
         history: Conversation so far, oldest first, ending with the user's latest message.
         page_context: Content of the page the owner is looking at, if the chat was opened from one.
         business_snapshot: Latest forecast, approved actions and news from the team's services.
+        account: The business the assistant works for; a generic small business when not given.
 
     Returns:
         The assistant reply text.
@@ -75,7 +78,10 @@ def answer(
         2. Keep only the most recent messages so the prompt fits the small model.
         3. Ask the LLM for the next assistant message.
     """
-    system_prompt = SYSTEM_PROMPT
+    system_prompt = SYSTEM_PROMPT.format(
+        business_name=account.business_name if account else "a small business",
+        description=account.description if account else "run by its owner",
+    )
     if business_snapshot.strip():
         system_prompt = (
             f"{system_prompt}\n\n{BUSINESS_DATA_PROMPT.format(snapshot=business_snapshot.strip())}"

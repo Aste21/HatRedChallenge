@@ -12,8 +12,8 @@ from app.config import Settings
 from app.forecasting.client import Forecast, ForecastClient, get_forecast_client
 from app.main import app
 from app.service_client import ServiceUnavailableError
-from app.storage.decisions import DecisionRepository, get_decision_repository
-from app.storage.news_impacts import NewsImpactRepository, get_news_impact_repository
+from app.storage.decisions import DecisionRepository, StoredDecision, get_decision_repository
+from app.storage.news_impacts import NewsImpact, NewsImpactRepository, get_news_impact_repository
 
 AS_OF = datetime.date(2025, 12, 31)
 
@@ -60,7 +60,7 @@ class FakeForecastClient:
     def __init__(self, forecast: Forecast) -> None:
         self.forecast = forecast
 
-    def fetch_forecast(self, horizon_days: int = 90) -> Forecast:
+    def fetch_forecast(self, account_id: str, horizon_days: int = 90) -> Forecast:
         return self.forecast
 
 
@@ -113,7 +113,7 @@ def make_client(
     app.dependency_overrides[get_proposal_service] = lambda: service
     app.dependency_overrides[get_decision_repository] = lambda: repository
     try:
-        yield TestClient(app)
+        yield TestClient(app, headers={"X-Account-Id": "amalfi"})
     finally:
         app.dependency_overrides.clear()
 
@@ -134,8 +134,8 @@ def test_proposals_explain_deposit_offers(client: TestClient) -> None:
     board = client.get("/api/proposals").json()
 
     assert [proposal["id"] for proposal in board["proposals"]] == [
-        "deposit_30d-2025-12-31",
-        "deposit_60d-2025-12-31",
+        "amalfi-deposit_30d-2025-12-31",
+        "amalfi-deposit_60d-2025-12-31",
     ]
     proposal = board["proposals"][0]
     assert proposal["status"] == "awaiting_approval"
@@ -155,7 +155,9 @@ def test_instrument_agent_answer_is_cached(
 
 
 def test_approval_records_transaction_and_supersedes_alternatives(client: TestClient) -> None:
-    response = client.post("/api/proposals/deposit_30d-2025-12-31/decision", json={"decision": "approved"})
+    response = client.post(
+        "/api/proposals/amalfi-deposit_30d-2025-12-31/decision", json={"decision": "approved"}
+    )
 
     assert response.status_code == 200
     assert response.json()["transaction"]["amount"] == 7391.53
@@ -163,17 +165,24 @@ def test_approval_records_transaction_and_supersedes_alternatives(client: TestCl
     statuses = {
         proposal["id"]: proposal["status"] for proposal in client.get("/api/proposals").json()["proposals"]
     }
-    assert statuses == {"deposit_30d-2025-12-31": "approved", "deposit_60d-2025-12-31": "superseded"}
+    assert statuses == {
+        "amalfi-deposit_30d-2025-12-31": "approved",
+        "amalfi-deposit_60d-2025-12-31": "superseded",
+    }
     assert len(client.get("/api/transactions").json()["transactions"]) == 1
     notification = client.get("/api/notifications").json()["notifications"][0]
     assert notification["subject"].startswith("Approved (simulated)")
 
-    second = client.post("/api/proposals/deposit_60d-2025-12-31/decision", json={"decision": "approved"})
+    second = client.post(
+        "/api/proposals/amalfi-deposit_60d-2025-12-31/decision", json={"decision": "approved"}
+    )
     assert second.status_code == 409
 
 
 def test_decline_records_no_transaction(client: TestClient) -> None:
-    response = client.post("/api/proposals/deposit_30d-2025-12-31/decision", json={"decision": "declined"})
+    response = client.post(
+        "/api/proposals/amalfi-deposit_30d-2025-12-31/decision", json={"decision": "declined"}
+    )
 
     assert response.json()["transaction"] is None
     assert client.get("/api/transactions").json()["transactions"] == []
@@ -203,7 +212,9 @@ def test_credit_line_proposed_when_balance_may_go_negative(repository: DecisionR
 def test_business_snapshot_contains_forecast_and_skips_unavailable_news(
     repository: DecisionRepository,
 ) -> None:
-    snapshot = build_business_snapshot(FakeForecastClient(make_forecast()), FakeNewsClient(), repository)
+    snapshot = build_business_snapshot(
+        "amalfi", FakeForecastClient(make_forecast()), FakeNewsClient(), repository
+    )
 
     assert "€33,266.35" in snapshot
     assert "30 days €7,391.53" in snapshot
@@ -243,17 +254,17 @@ class RecordingServiceClient:
 def test_applied_news_events_are_sent_with_the_forecast(tmp_path: Path) -> None:
     impact_repository = NewsImpactRepository(tmp_path / "impacts.sqlite3")
     service_client = RecordingServiceClient()
-    forecast_client = ForecastClient(service_client, "amalfi", impact_repository.all_events, 60.0)
+    forecast_client = ForecastClient(service_client, impact_repository.all_events, 60.0)
     app.dependency_overrides[get_forecast_client] = lambda: forecast_client
     app.dependency_overrides[get_news_impact_repository] = lambda: impact_repository
     try:
-        client = TestClient(app)
+        client = TestClient(app, headers={"X-Account-Id": "amalfi"})
         applied = client.post(
             "/api/news/impacts",
             json={"article_id": "abc123def456", "title": "Energy prices rise", "summary": "Tariff +15 %"},
         ).json()
         impacts = client.get("/api/news/impacts").json()["impacts"]
-        forecast_client.fetch_forecast()
+        forecast_client.fetch_forecast("amalfi")
         removed = client.delete("/api/news/impacts/abc123def456")
         missing = client.delete("/api/news/impacts/abc123def456")
     finally:
@@ -266,7 +277,7 @@ def test_applied_news_events_are_sent_with_the_forecast(tmp_path: Path) -> None:
     assert forecast_request["events"] == [ENERGY_EVENT]
     assert removed.status_code == 204
     assert missing.status_code == 404
-    assert impact_repository.all_events() == []
+    assert impact_repository.all_events("amalfi") == []
 
 
 def test_deposit_proposal_shows_offer_range_and_interest(client: TestClient) -> None:
@@ -277,3 +288,52 @@ def test_deposit_proposal_shows_offer_range_and_interest(client: TestClient) -> 
     assert proposal["buffer_eur"] == 21396.67
     assert proposal["safe_amount"] == 7391.53
     assert proposal["interest_eur"] == round(7391.53 * 0.035 * 30 / 365, 2)
+
+
+def test_requests_without_a_known_account_are_refused(client: TestClient) -> None:
+    anonymous = TestClient(app)
+
+    assert anonymous.get("/api/proposals").status_code == 401
+    assert anonymous.get("/api/proposals", headers={"X-Account-Id": "someone-else"}).status_code == 403
+
+
+def test_each_account_only_sees_its_own_records(tmp_path: Path) -> None:
+    repository = DecisionRepository(tmp_path / "decisions.sqlite3")
+    impacts = NewsImpactRepository(tmp_path / "impacts.sqlite3")
+    decision = StoredDecision(
+        proposal_id="amalfi-deposit_30d-2025-12-31",
+        proposal_group="surplus_placement",
+        decision="declined",
+        title="Deposit",
+        amount=1.0,
+        decided_at="2026-01-01T00:00:00Z",
+    )
+    repository.record_decision("amalfi", decision, None, None)
+    impact = NewsImpact(
+        article_id="abc123def456", title="News", events=[ENERGY_EVENT], rejected_count=0, created_at="x"
+    )
+    impacts.save_impact("amalfi", impact)
+    impacts.save_impact("bakery", impact.model_copy(update={"events": []}))
+
+    assert list(repository.list_decisions("amalfi")) == ["amalfi-deposit_30d-2025-12-31"]
+    assert repository.list_decisions("bakery") == {}
+    assert impacts.all_events("amalfi") == [ENERGY_EVENT]
+    assert impacts.all_events("bakery") == []
+
+
+def test_approval_from_an_older_board_does_not_block_new_proposals(
+    repository: DecisionRepository, client: TestClient
+) -> None:
+    old_approval = StoredDecision(
+        proposal_id="amalfi-deposit_30d-2025-06-30",
+        proposal_group="surplus_placement",
+        decision="approved",
+        title="Old deposit",
+        amount=1.0,
+        decided_at="2025-07-01T00:00:00Z",
+    )
+    repository.record_decision("amalfi", old_approval, None, None)
+
+    statuses = {proposal["status"] for proposal in client.get("/api/proposals").json()["proposals"]}
+
+    assert statuses == {"awaiting_approval"}
