@@ -8,6 +8,20 @@ import mlflow
 from fastapi.testclient import TestClient
 
 
+def deposits_within_forecast_limits(proposals: list[dict], safe_to_lock: list[dict]) -> bool:
+    """Check every fixed-term deposit against the official limit for its own term.
+
+    The demo account must exercise at least one deposit to pass this acceptance check.
+    """
+    limits_by_term = {limit["days"]: limit["amount"] for limit in safe_to_lock}
+    deposits = [proposal for proposal in proposals if proposal["kind"] == "fixed_term_deposit"]
+    return bool(deposits) and all(
+        deposit["term_days"] in limits_by_term
+        and 0 < deposit["amount"] <= limits_by_term[deposit["term_days"]]
+        for deposit in deposits
+    )
+
+
 def main() -> None:
     """Check the input policy, forecast grounding and approval flow. Export only test outcomes."""
     with tempfile.TemporaryDirectory() as scratch:
@@ -38,8 +52,13 @@ def main() -> None:
 
             board = client.get("/api/proposals")
             board.raise_for_status()
-            proposals = board.json()["proposals"]
-            results["proposal_with_draft"] = bool(proposals and board.json()["notification_draft"])
+            board_data = board.json()
+            proposals = board_data["proposals"]
+            results["proposal_with_draft"] = bool(proposals and board_data["notification_draft"])
+            results["deposits_within_forecast_limits"] = (
+                board_data["as_of"] == data["as_of"]
+                and deposits_within_forecast_limits(proposals, data["official"]["safe_to_lock"])
+            )
             if proposals:
                 decision_path = f"/api/proposals/{proposals[0]['id']}/decision"
                 approved = client.post(decision_path, json={"decision": "approved"})
