@@ -7,7 +7,7 @@ docker run --rm -p 8080:8080 --env-file .env instrument-agent
 curl --fail-with-body -sS http://localhost:8080/recommendations \
   -H 'Content-Type: application/json' \
   -d '{
-    "account_id": "demo-account",
+    "account_id": "account",
     "as_of": "2026-11-21",
     "official": {
       "safe_to_lock": [

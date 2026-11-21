@@ -12,18 +12,38 @@ from tools import list_offers, make_evaluate_offer
 
 
 class NotificationDraft(BaseModel):
-    subject: str = Field(description="Short email subject on one line.")
-    body: str = Field(description="Plain-text email body.")
+    subject: str = Field(description="Short, single-line email subject.")
+    body: str = Field(description="Plain-text email body in English.")
+
+
+class AgentDecision(BaseModel):
+    ranked_offer_ids: list[str] = Field(
+        max_length=3,
+        description="Primary offer ID first, followed by up to two alternatives.",
+    )
+    notification: NotificationDraft
 
 
 SYSTEM_PROMPT = """
-Write an English email draft about the supplied deposit evaluation.
+Recommend one primary offer and up to two alternatives from the supplied
+evaluations. Use only the facts and figures in the request.
 
-Use only the evaluated offers and facts supplied in the request.
-Describe eligible offers as alternatives that draw from the same cash.
-Present amounts as forecast-based limits and invite the recipient to
-review an offer in the app. Identify the offers as demo offers.
-If no offer qualifies, explain why using the evaluation results.
+Choose only offers marked eligible under the official forecast. Put the
+primary offer first. Compare the lockup period, maximum amount available
+for each offer, and any supplied return estimates and risk information.
+Prefer a shorter lockup when estimated returns are close. If you choose
+a longer lockup, explain what makes it worthwhile. Treat annualized rates
+as annualized figures and use term return estimates only when supplied.
+
+Include an alternative only if it offers a distinct benefit. Each option
+draws from the same cash, so present the options as separate choices.
+
+If no offer qualifies, return an empty ranked_offer_ids list and explain
+why using the evaluation results.
+
+Write the email in English. Lead with the primary recommendation and why
+you chose it. Describe the maximum amount as a forecast-based limit and
+invite the recipient to review the offer in the app.
 """.strip()
 
 
@@ -38,16 +58,17 @@ def get_model() -> ChatOpenAI:
     )
 
 
-def draft_notification(
+def choose_offers(
     *,
     as_of: date,
     evaluations: list[dict],
-) -> NotificationDraft:
+) -> AgentDecision:
     agent = create_agent(
         model=get_model(),
-        response_format=ToolStrategy(NotificationDraft),
+        response_format=ToolStrategy(AgentDecision),
         system_prompt=SYSTEM_PROMPT,
     )
+
     payload = {
         "as_of": as_of.isoformat(),
         "currency": "EUR",
@@ -66,25 +87,34 @@ def run_agent(
 ) -> tuple[list[dict], NotificationDraft]:
     evaluate_offer = make_evaluate_offer(safe_to_lock_eur=safe_to_lock_eur)
     catalog = list_offers.invoke({})
-    offers = []
     evaluations = []
+    offers_by_id = {}
 
     for offer in catalog:
-        evaluation = evaluate_offer.invoke({"offer_id": offer["offer_id"]})
-        evaluations.append(evaluation)
+        offer_id = offer["offer_id"]
+        evaluation = evaluate_offer.invoke({"offer_id": offer_id})
+        evaluations.append({**offer, **evaluation})
 
         if evaluation["status"] == "eligible":
-            offers.append(
-                {
-                    "offer_id": offer["offer_id"],
-                    "name": offer["name"],
-                    "term_days": offer["term_days"],
-                    "currency": "EUR",
-                    "min_amount": f"{offer['min_amount_eur']:.2f}",
-                    "max_amount": f"{evaluation['max_amount_eur']:.2f}",
-                    "annual_rate_pct": offer["annual_rate_pct"],
-                }
-            )
+            offers_by_id[offer_id] = {
+                "offer_id": offer_id,
+                "name": offer["name"],
+                "term_days": offer["term_days"],
+                "currency": "EUR",
+                "min_amount": f"{offer['min_amount_eur']:.2f}",
+                "max_amount": f"{evaluation['max_amount_eur']:.2f}",
+                "annual_rate_pct": offer["annual_rate_pct"],
+            }
 
-    notification = draft_notification(as_of=as_of, evaluations=evaluations)
-    return offers, notification
+    decision = choose_offers(as_of=as_of, evaluations=evaluations)
+    ranked_ids = decision.ranked_offer_ids
+
+    if (
+        bool(ranked_ids) != bool(offers_by_id)
+        or len(ranked_ids) != len(set(ranked_ids))
+        or any(offer_id not in offers_by_id for offer_id in ranked_ids)
+    ):
+        raise ValueError("The model returned an invalid offer selection.")
+
+    ranked_offers = [offers_by_id[offer_id] for offer_id in ranked_ids]
+    return ranked_offers, decision.notification

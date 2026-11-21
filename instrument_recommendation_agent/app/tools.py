@@ -3,24 +3,23 @@ from decimal import ROUND_DOWN, Decimal
 from langchain.tools import tool
 
 
-# Fictional offers for the demo.
 OFFERS = {
     "deposit_30d": {
-        "name": "Demo 30-day deposit",
+        "name": "30-day deposit",
         "term_days": 30,
         "annual_rate_pct": 3.5,
         "min_amount_eur": 1_000,
         "max_amount_eur": 20_000,
     },
     "deposit_60d": {
-        "name": "Demo 60-day deposit",
+        "name": "60-day deposit",
         "term_days": 60,
         "annual_rate_pct": 3.8,
         "min_amount_eur": 1_500,
         "max_amount_eur": 25_000,
     },
     "deposit_90d": {
-        "name": "Demo 90-day deposit",
+        "name": "90-day deposit",
         "term_days": 90,
         "annual_rate_pct": 4.2,
         "min_amount_eur": 2_000,
@@ -101,7 +100,7 @@ OFFERS = {
 
 @tool
 def list_offers() -> list[dict]:
-    """List demo EUR deposits and the offer IDs used by evaluate_offer."""
+    """List EUR deposits and the offer IDs used by evaluate_offer."""
     return [
         {"offer_id": offer_id, **offer}
         for offer_id, offer in OFFERS.items()
