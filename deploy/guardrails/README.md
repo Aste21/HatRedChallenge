@@ -1,6 +1,6 @@
 # NeMo Guardrails — OpenShift
 
-Standalone input checks for Autonomous CFO, managed by TrustyAI on OpenShift AI 3.5.
+Standalone input checks for CFOcus, managed by TrustyAI on OpenShift AI 3.5.
 No GPU or separate LLM is required. The current rules block email addresses,
 phone numbers and the keywords `password`, `secret`, `api_key` / `api-key`, `token`.
 These are demo rules, **not** a complete financial security policy.

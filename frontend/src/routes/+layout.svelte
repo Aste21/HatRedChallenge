@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onNavigate } from '$app/navigation';
   import './ledger.css';
+  import { PRODUCT_NAME } from '#lib/brand.ts';
   import type { LayoutProps } from './$types';
 
   let { children }: LayoutProps = $props();
@@ -16,5 +17,8 @@
     });
   });
 </script>
+
+<!-- One fixed browser-tab title on every page. -->
+<svelte:head><title>{PRODUCT_NAME}</title></svelte:head>
 
 {@render children()}

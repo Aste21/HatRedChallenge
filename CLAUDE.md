@@ -7,6 +7,9 @@ Read this file fully before writing code. When something here conflicts with a d
 
 ## 1. What we are building
 
+Product name: **CFOcus** (exact casing; single source in `frontend/src/lib/brand.ts`). "Autonomous CFO" is the
+name of the challenge, not of the product.
+
 An **AI-powered CFO assistant for SME owners** (no dedicated CFO). It monitors the company bank account and
 business news, forecasts liquidity, proposes explainable next steps, and **never executes anything without the
 owner's approval** (execution is simulated).

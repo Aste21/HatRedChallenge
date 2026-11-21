@@ -22,6 +22,15 @@ categories = {
     "Luigi Amalfi (Luigi's Ristorante Zurich)": "Partner payout (CHF)",
 }
 spending = defaultdict(Decimal)
+# Staff roles from the company knowledge (backend/app/knowledge/amalfi/company_knowledge.md); pay comes from the CSV.
+staff_roles = {
+    "Vincenzo Amalfi": "Owner",
+    "Yusuf Akcit": "Pizza baker",
+    "Rosa Pavese": "Chef",
+    "Vanessa Paradi": "Waitstaff",
+}
+# Net salary payments per person: payment date -> cents.
+salaries = defaultdict(lambda: defaultdict(Decimal))
 # Debit-card takings are settled daily, so they show the weekday pattern (credit-card payouts come in batches).
 debit_takings = defaultdict(list)
 with source.open(encoding="utf-8-sig", newline="") as stream:
@@ -43,6 +52,8 @@ with source.open(encoding="utf-8-sig", newline="") as stream:
             if category is None:
                 raise ValueError(f"No category for {row['Beneficiary/Payer']}")
             spending[category] += -amount * 100
+        if row["Transaction Type"] == "SALARY PAYMENT":
+            salaries[row["Beneficiary/Payer"]][day] += -amount * 100
 
 def nearest_cent(value):
     return int(Decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
@@ -74,5 +85,13 @@ output = frontend / "src/lib/server/statements/amalfi.json"
 weekdays = [nearest_cent(sum(debit_takings[weekday]) / len(debit_takings[weekday])) if debit_takings[weekday] else 0
             for weekday in range(7)]
 spending_rows = sorted(([name, nearest_cent(cents)] for name, cents in spending.items()), key=lambda row: -row[1])
-output.write_text(json.dumps(dict(history=history, scenario=scenario, bills=schedule, spending=spending_rows, weekdays=weekdays),
+missing_roles = set(salaries) - set(staff_roles)
+if missing_roles:
+    raise ValueError(f"No role for {sorted(missing_roles)}")
+# One entry per person, highest total pay first, with every salary payment as [date, cents].
+payroll = [dict(name=name, role=staff_roles[name],
+                payments=[[day.isoformat(), nearest_cent(cents)] for day, cents in sorted(payments.items())])
+           for name, payments in sorted(salaries.items(), key=lambda item: -sum(item[1].values()))]
+output.write_text(json.dumps(dict(history=history, scenario=scenario, bills=schedule, spending=spending_rows, weekdays=weekdays,
+                                  payroll=payroll),
                              separators=(",", ":")) + "\n", encoding="utf-8")

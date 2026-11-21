@@ -1,7 +1,7 @@
 [project]
 name = "autonomous-cfo-backend"
 version = "0.1.0"
-description = "Autonomous CFO backend: FastAPI app and agents for SME owners"
+description = "CFOcus backend: FastAPI app and agents for SME owners"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

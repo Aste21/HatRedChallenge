@@ -4,6 +4,7 @@
   import ChatThread from './ChatThread.svelte';
   import ConversationList from './ConversationList.svelte';
   import { chat } from './session.svelte.ts';
+  import { PRODUCT_NAME } from '#lib/brand.ts';
 
   type Suggestion = { title: string; detail: string };
   const pages: Record<string, { name: string; suggestions: Suggestion[] }> = {
@@ -63,10 +64,10 @@
 <svelte:window onkeydown={(event) => { if (open && event.key === 'Escape') close(); }} />
 
 {#if open}
-  <section class="assistant-popover" id="assistant-popover" aria-label="CFO assistant">
+  <section class="assistant-popover" id="assistant-popover" aria-label="{PRODUCT_NAME} assistant">
     <header class="popover-head">
       <div class="popover-heading">
-        <h2>{view === 'history' ? 'Your conversations' : chat.title || 'CFO assistant'}</h2>
+        <h2>{view === 'history' ? 'Your conversations' : chat.title || PRODUCT_NAME}</h2>
         <p class="popover-sees">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
           Can see your {current.name} page
@@ -82,7 +83,7 @@
         <a href="/assistant" onclick={() => open = false} aria-label="Open the full chat page" title="Open full chat">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
         </a>
-        <button onclick={close} aria-label="Close the assistant" title="Close">
+        <button onclick={close} aria-label="Close {PRODUCT_NAME}" title="Close">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
         </button>
       </div>
@@ -106,6 +107,6 @@
   {#if open}
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg><span>Close</span>
   {:else}
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /></svg><span>Ask the assistant</span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /></svg><span>Ask {PRODUCT_NAME}</span>
   {/if}
 </button>

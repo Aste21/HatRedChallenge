@@ -18,7 +18,7 @@
     { icon: 'proposal', title: 'Proposals with reasons', text: 'Spare cash for a fixed-term deposit, or a credit line before a gap. Every proposal shows the numbers behind it.' },
     { icon: 'check', title: 'You approve everything', text: 'Nothing happens without your click. Approvals are recorded and confirmed, and in this demo they are simulated.' },
     { icon: 'news', title: 'News that affects you', text: 'Energy prices, tax changes, road works in your street: check what an article means for your cash flow in one click.' },
-    { icon: 'chat', title: 'Ask in plain words', text: '"Can I afford a new oven in March?" The assistant answers with your real figures and says so when it does not know.' }
+    { icon: 'chat', title: 'Ask in plain words', text: `"Can I afford a new oven in March?" ${PRODUCT_NAME} answers with your real figures and says so when it does not know.` }
   ];
   const steps = [
     { title: 'Connect your business account', text: 'Your statement is read and regular payments like rent, payroll and taxes are found automatically.' },
@@ -31,7 +31,7 @@
     { eyebrow: 'Your dashboard', title: 'Arrange it the way you think', text: 'Show the cards you care about, hide the rest, drag them into your order and make them wider or narrower. Light or dark, on a desktop or your phone.', points: ['Liquidity, forecast, spending and weekday patterns', 'A calendar of your whole year', 'Works with the keyboard and screen readers'] }
   ];
   const trust = [
-    { title: 'You decide, always', text: 'The assistant proposes. Only you approve. Every recommendation says what happens if you click.' },
+    { title: 'You decide, always', text: `${PRODUCT_NAME} proposes. Only you approve. Every recommendation says what happens if you click.` },
     { title: 'Explainable numbers', text: 'Figures come from calculations on your data, never from the language model. The model only explains them.' },
     { title: 'Your data stays yours', text: 'Each business sees only its own account, decisions and conversations.' },
     { title: 'Open, in-house AI', text: 'Runs on Red Hat OpenShift AI with an open-source model served in the cluster, not on a public chatbot.' }
@@ -69,7 +69,6 @@
 </script>
 
 <svelte:head>
-  <title>{title}</title>
   <meta name="description" content={description} />
   <link rel="canonical" href={canonical} />
   <meta property="og:type" content="website" />
@@ -233,7 +232,7 @@
 
   <section class="container cta-band" aria-labelledby="cta-title">
     <h2 id="cta-title">See your next 90 days in a minute</h2>
-    <p>Log in with the demo account of Pizzeria Amalfi and explore the forecast, the proposals and the assistant.</p>
+    <p>Log in with the demo account of Pizzeria Amalfi and explore the forecast, the proposals and the chat with {PRODUCT_NAME}.</p>
     <button class="action large" onclick={startDemo}>{data.signedIn ? 'Open your dashboard' : 'Try the live demo'}</button>
   </section>
 </main>

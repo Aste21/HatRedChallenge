@@ -1,6 +1,6 @@
 # MLflow — OpenShift
 
-MLflow is used for experiment tracking and tracing AI agents in Autonomous CFO.
+MLflow is used for experiment tracking and tracing AI agents in CFOcus.
 
 **Configuration:** MLflow 3.14.0, SQLite, 10 GiB PVC (`gp3-csi`), 1 replica, no GPU.
 

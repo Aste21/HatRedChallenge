@@ -1,9 +1,9 @@
-# Autonomous CFO — "Pany" Team
+# CFOcus — "Pany" Team
 
-**An AI CFO for small business owners who don't have one.**
-Built for the Commerzbank Collabothon 2026, Red Hat challenge.
+**CFOcus: an AI CFO for small business owners who don't have one.**
+Built for the Commerzbank Collabothon 2026, Red Hat challenge "Autonomous CFO".
 
-The assistant watches the business bank account and the news, forecasts liquidity, and proposes next steps
+CFOcus watches the business bank account and the news, forecasts liquidity, and proposes next steps
 in plain language: put spare cash into a deposit, or arrange a credit line before a cash gap.
 **Nothing happens without the owner's approval, and every execution is simulated.**
 
@@ -20,7 +20,7 @@ Demo company: **Pizzeria Amalfi** (Frankfurt), with its full 2025 bank statement
 | **Cashflow** | Balance history for 2025 and a 30/60/90-day forecast: the expected balance plus a likely range from 4,000 simulated futures |
 | **Proposals** | Explained proposals (fixed-term deposits, credit line) with *What we see / What we suggest / Why this amount / On approval*, and an **Approve** button |
 | **Business news** | Articles the news agent judged relevant to the business, with the reason why |
-| **Chat** | An assistant that answers using the real forecast, the approved actions and the news. It is also available on every page as a floating widget that knows what is on screen |
+| **Chat** | CFOcus answers questions using the real forecast, the approved actions and the news. It is also available on every page as a floating widget that knows what is on screen |
 
 Every proposal states its `analysis`, `recommendation`, `rationale`, `requires_approval` and
 `execution_mode: simulated`. All numbers come from Python code. The LLM explains and drafts, and never makes up figures.

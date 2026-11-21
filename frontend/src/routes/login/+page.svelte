@@ -8,7 +8,7 @@
   let next = $derived(page.url.searchParams.get('next'));
 </script>
 
-<svelte:head><title>Log in · {PRODUCT_NAME}</title><meta name="robots" content="noindex" /></svelte:head>
+<svelte:head><meta name="robots" content="noindex" /></svelte:head>
 <div class="auth-page">
   <header class="auth-head container">
     <a class="brand" href="/">{PRODUCT_NAME}</a>

@@ -4,6 +4,7 @@
   import ChatWidget from '#lib/chat/ChatWidget.svelte';
   import ThemeToggle from '#lib/ThemeToggle.svelte';
   import { chat } from '#lib/chat/session.svelte.ts';
+  import { customCharts } from '#lib/custom-charts.svelte.ts';
   import { createLedger, provideLedger } from '#lib/ledger.ts';
   import { PRODUCT_NAME } from '#lib/brand.ts';
   import type { LayoutProps } from './$types';
@@ -13,7 +14,7 @@
   // svelte-ignore state_referenced_locally
   provideLedger(createLedger(data.statement));
   // svelte-ignore state_referenced_locally
-  onMount(() => chat.restore(data.account.id));
+  onMount(() => { chat.restore(data.account.id); customCharts.restore(data.account.id); });
 
   const links = [
     { path: '/overview', label: 'Overview' },

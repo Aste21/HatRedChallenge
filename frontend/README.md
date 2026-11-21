@@ -1,4 +1,4 @@
-# Frontend
+# CFOcus frontend
 
 ## Open in Dev Spaces
 

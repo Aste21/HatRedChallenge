@@ -1,4 +1,4 @@
-# Later integration — Autonomous CFO
+# Later integration — CFOcus
 
 Infrastructure already running:
 - Qwen3-8B via vLLM (`my-first-model`)

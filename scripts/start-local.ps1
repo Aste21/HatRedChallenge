@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Starts every service of the Autonomous CFO locally, each in its own window.
+  Starts every service of CFOcus locally, each in its own window.
 
 .DESCRIPTION
   forecast service  account-prediction/                 http://127.0.0.1:8081

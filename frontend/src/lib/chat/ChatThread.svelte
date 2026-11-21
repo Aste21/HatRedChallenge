@@ -1,7 +1,11 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import Markdown from '#lib/Markdown.svelte';
+  import CustomChart from '#lib/charts/CustomChart.svelte';
+  import { customCharts } from '#lib/custom-charts.svelte.ts';
+  import type { ChartSpec } from '#lib/charts/custom.ts';
   import { chat } from './session.svelte.ts';
+  import { PRODUCT_NAME } from '#lib/brand.ts';
 
   type Suggestion = { title: string; detail: string };
   let {
@@ -38,6 +42,11 @@
     }
   }
 
+  let announcement = $state('');
+  function addToOverview(spec: ChartSpec) {
+    if (customCharts.add(spec)) announcement = `"${spec.title}" was added to Your charts on the overview.`;
+  }
+
   async function copy(content: string, id: number) {
     await navigator.clipboard.writeText(content);
     copied = id;
@@ -45,6 +54,7 @@
   }
 </script>
 
+<p class="sr-only" role="status">{announcement}</p>
 <div class="chat-scroll" class:compact bind:this={scroller}>
   {#if chat.loading}
     <div class="chat-column chat-welcome" role="status"><p class="minor">Opening conversation…</p></div>
@@ -71,8 +81,35 @@
           <div class="message assistant">
             <span class="avatar" aria-hidden="true">€</span>
             <div class="assistant-body">
-              <span class="sr-only">Assistant:</span>
+              <span class="sr-only">{PRODUCT_NAME}:</span>
               <Markdown source={message.content} />
+              {#if message.chart}
+                {#if compact}
+                  <!-- The small assistant window has no room for an interactive chart. -->
+                  <a class="chat-chart-link" href="/assistant">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>
+                    <span><b>{message.chart.title}</b><small>Chart available in the Chat section — open it to see and save the chart</small></span>
+                  </a>
+                {:else}
+                  {@const saved = customCharts.find(message.chart)}
+                  <div class="chat-chart">
+                    <CustomChart spec={message.chart} heading="h3" />
+                    <div class="chat-chart-actions">
+                      {#if saved}
+                        <span class="chat-chart-saved">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>On your overview
+                        </span>
+                        <a href="/overview#your-charts">View on overview</a>
+                      {:else}
+                        <button class="add-chart" onclick={() => addToOverview(message.chart!)} disabled={customCharts.full}>
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add to overview
+                        </button>
+                        {#if customCharts.full}<span class="minor">Your overview is full. Delete a chart there first.</span>{/if}
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              {/if}
               <div class="message-actions">
                 <button onclick={() => copy(message.content, message.id)} aria-label="Copy answer">
                   {#if copied === message.id}
@@ -89,7 +126,7 @@
       {#if chat.pending}
         <div class="message assistant" role="status">
           <span class="avatar" aria-hidden="true">€</span>
-          <div class="typing"><span></span><span></span><span></span><span class="sr-only">The assistant is thinking…</span></div>
+          <div class="typing"><span></span><span></span><span></span><span class="sr-only">{PRODUCT_NAME} is thinking…</span></div>
         </div>
       {/if}
       {#if chat.failure}
@@ -118,5 +155,5 @@
       </button>
     {/if}
   </form>
-  <p class="chat-disclaimer">The assistant can make mistakes. Nothing is ever paid or moved without your approval.</p>
+  <p class="chat-disclaimer">{PRODUCT_NAME} can make mistakes. Nothing is ever paid or moved without your approval.</p>
 </div>

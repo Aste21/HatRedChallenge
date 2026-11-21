@@ -1,5 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { backendFetch, conversationIdPattern, failOnBackendError } from '#lib/server/backend.ts';
+import { statementFor } from '#lib/server/accounts.ts';
+import { statementSummary } from '#lib/server/statement-summary.ts';
+import { normaliseSpec } from '#lib/charts/custom.ts';
 import type { RequestHandler } from './$types';
 
 type PageContext = { path: string; title: string; content: string };
@@ -9,7 +12,7 @@ const isPageContext = (value: unknown): value is PageContext =>
   ['path', 'title', 'content'].every((key) => typeof (value as Record<string, unknown>)[key] === 'string');
 
 /** Forwards a new message (plus what the owner sees on the current page) to the backend chat agent. */
-export const POST: RequestHandler = async ({ request, fetch }) => {
+export const POST: RequestHandler = async ({ request, fetch, locals }) => {
   const payload = await request.json().catch(() => null);
   const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
   const conversationId = payload?.conversation_id ?? null;
@@ -20,6 +23,10 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   }
   if (pageContext !== null && !isPageContext(pageContext)) error(400, 'Invalid page content.');
 
+  // The statement lives here, not in the backend: tell the assistant which months its charts can show.
+  // Its figures are computed here too, so the assistant can quote real numbers on every page.
+  const statement = statementFor(locals.account!.id);
+  const { history } = statement;
   const response = await backendFetch(fetch, 'api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -30,7 +37,9 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
         path: pageContext.path.slice(0, 200),
         title: pageContext.title.slice(0, 200),
         content: pageContext.content.slice(0, 8000)
-      }
+      },
+      statement_period: { first_day: history[0].date, last_day: history[history.length - 1].date },
+      statement_summary: statementSummary(statement)
     }),
     timeoutMs: 90_000
   });
@@ -39,6 +48,7 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
   return json({
     conversation_id: String(answer.conversation_id),
     title: String(answer.title ?? ''),
-    reply: typeof answer.reply === 'string' ? answer.reply : ''
+    reply: typeof answer.reply === 'string' ? answer.reply : '',
+    chart: normaliseSpec(answer.chart)
   });
 };

@@ -49,7 +49,6 @@
   }
 </script>
 
-<svelte:head><title>Business news</title></svelte:head>
 <Heading title="Business news" />
 <section class="panel">
   <div class="panel-head"><h2>Relevant articles</h2><a href="/news" data-sveltekit-reload>Refresh</a></div>
@@ -63,7 +62,7 @@
       {#if article.id}
         <div class="impact">
           {#if working === article.id}
-            <p class="minor" role="status">Your assistant is checking how this affects your cash flow. This can take a few seconds…</p>
+            <p class="minor" role="status">CFOcus is checking how this affects your cash flow. This can take a few seconds…</p>
           {:else if impact}
             {#if impact.events.length}
               <p><b>In your forecast</b></p>

@@ -62,11 +62,10 @@
   }
 </script>
 
-<svelte:head><title>Proposals</title></svelte:head>
 <Heading title="Proposals" period="Simulated decisions" />
 
 {#await data.board}
-  <p class="note" role="status">Your CFO assistant is checking the forecast and preparing proposals. This can take a few seconds…</p>
+  <p class="note" role="status">CFOcus is checking the forecast and preparing proposals. This can take a few seconds…</p>
   <div class="proposal-grid" aria-hidden="true">
     {#each [0, 1] as placeholder (placeholder)}
       <div class="panel"><span class="skeleton skeleton-line" style:width="40%"></span><span class="skeleton skeleton-line wide"></span><span class="skeleton skeleton-block"></span></div>
@@ -134,7 +133,7 @@
     </div>
     {#if board.notification_draft}
       <details class="panel">
-        <summary>Message drafted by your assistant</summary>
+        <summary>Message drafted by CFOcus</summary>
         <h3>{board.notification_draft.subject}</h3>
         <p class="draft">{board.notification_draft.body}</p>
       </details>

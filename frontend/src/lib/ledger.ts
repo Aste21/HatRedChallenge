@@ -7,6 +7,8 @@ export type Statement = {
   bills: (string | number)[][];
   spending: (string | number)[][];
   weekdays: number[];
+  /** Net salary payments per person, as `[date, cents]`; roles come from the company knowledge. */
+  payroll: { name: string; role: string; payments: (string | number)[][] }[];
 };
 
 export const money = (cents: number) => new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR' }).format(cents / 100);
@@ -37,7 +39,13 @@ export function createLedger(statement: Statement) {
     /** Money out by category, in cents, largest first (CHF converted at the rate in the reference). */
     spending: statement.spending.map(([name, cents]) => ({ name: String(name), cents: Number(cents) })),
     /** Average daily debit-card takings per weekday in cents, Monday first. */
-    weekdayTakings: statement.weekdays.map(Number)
+    weekdayTakings: statement.weekdays.map(Number),
+    /** Staff with their net salary payments in cents, highest total pay first. */
+    payroll: statement.payroll.map(({ name, role, payments }) => ({
+      name,
+      role,
+      payments: payments.map(([date, cents]) => ({ date: String(date), cents: Number(cents) }))
+    }))
   };
 }
 

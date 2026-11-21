@@ -3,6 +3,7 @@
   import ChatThread from '#lib/chat/ChatThread.svelte';
   import ConversationList from '#lib/chat/ConversationList.svelte';
   import { chat } from '#lib/chat/session.svelte.ts';
+  import { PRODUCT_NAME } from '#lib/brand.ts';
 
   const suggestions = [
     { title: 'Why did cash fall', detail: 'in the summer of 2025?' },
@@ -20,7 +21,6 @@
   }
 </script>
 
-<svelte:head><title>Chat</title></svelte:head>
 <div class="chat-layout">
   <aside class="panel chat-history" aria-label="Conversation history">
     <div class="chat-history-head">
@@ -32,9 +32,9 @@
     <ConversationList onpick={() => thread?.focus()} />
   </aside>
 
-  <section class="panel chat-app" aria-label="Chat with your CFO assistant">
+  <section class="panel chat-app" aria-label="Chat with {PRODUCT_NAME}">
     <div class="chat-bar">
-      <h1 class="chat-title">{chat.title || 'CFO assistant'}</h1>
+      <h1 class="chat-title">{chat.title || PRODUCT_NAME}</h1>
     </div>
     <ChatThread bind:this={thread} {suggestions} />
   </section>

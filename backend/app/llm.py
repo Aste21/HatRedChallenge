@@ -1,12 +1,29 @@
 import logging
 from functools import lru_cache
+from typing import Any
 
 import httpx
 from openai import OpenAI
+from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class ToolCall(BaseModel):
+    """A function call requested by the model."""
+
+    id: str
+    name: str
+    arguments: str
+
+
+class LlmReply(BaseModel):
+    """The model's text plus any tool calls it made."""
+
+    content: str
+    tool_calls: list[ToolCall]
 
 
 class LlmClient:
@@ -46,12 +63,12 @@ class LlmClient:
         return self._model
 
     def complete(
-        self, messages: list[dict[str, str]], temperature: float = 0.2, max_tokens: int | None = None
+        self, messages: list[dict[str, Any]], temperature: float = 0.2, max_tokens: int | None = None
     ) -> str:
         """Send a chat completion request and return the assistant's text.
 
         Args:
-            messages: Chat messages in OpenAI format (`role` + `content`).
+            messages: Chat messages in OpenAI format (`role` + `content`, or tool calls and results).
             temperature: Sampling temperature.
             max_tokens: Upper bound for the reply length; `None` lets the server decide.
 
@@ -65,6 +82,32 @@ class LlmClient:
             max_tokens=max_tokens,
         )
         return response.choices[0].message.content or ""
+
+    def complete_with_tools(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], temperature: float = 0.2
+    ) -> LlmReply:
+        """Send a chat completion request in which the model may call one of the given tools.
+
+        Args:
+            messages: Chat messages in OpenAI format.
+            tools: Tool definitions in OpenAI format.
+            temperature: Sampling temperature.
+
+        Returns:
+            The reply text and the function calls the model made.
+        """
+        response = self._client.chat.completions.create(
+            model=self.model, messages=messages, tools=tools, tool_choice="auto", temperature=temperature
+        )
+        message = response.choices[0].message
+        return LlmReply(
+            content=message.content or "",
+            tool_calls=[
+                ToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments or "")
+                for call in message.tool_calls or []
+                if call.type == "function"
+            ],
+        )
 
 
 @lru_cache

@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { flip } from 'svelte/animate';
   import { prefersReducedMotion } from 'svelte/motion';
-  import Heading from '#lib/Heading.svelte';
   import AnimatedNumber from '#lib/AnimatedNumber.svelte';
   import BalanceChart from '#lib/BalanceChart.svelte';
   import MonthlyFlowChart from '#lib/charts/MonthlyFlowChart.svelte';
@@ -12,7 +11,10 @@
   import OutflowChart from '#lib/charts/OutflowChart.svelte';
   import { dateLabel, money, useLedger } from '#lib/ledger.ts';
   import { providePageDetails } from '#lib/chat/page-context.ts';
+  import CustomChart from '#lib/charts/CustomChart.svelte';
   import { layout, spanLabels, spanNames, widgets, type Span } from '#lib/dashboard.svelte.ts';
+  import { customCharts } from '#lib/custom-charts.svelte.ts';
+  import { CHART_TYPES, chartTypeLabels, isBreakdown, type ChartType } from '#lib/charts/custom.ts';
   import { describeEvent, euro, eventStart, percent, upcomingPayments, worstDay, type ChartMarker, type Forecast } from '#lib/forecast.ts';
   import type { PageProps } from './$types';
   const { months, december, closing, bills, lowest, scenario, spending, weekdayTakings } = useLedger();
@@ -25,13 +27,45 @@
   let customizing = $state(false);
   let dragging = $state<string | null>(null);
   let resizing = $state<string | null>(null);
-  let grid = $state<HTMLElement>();
   let announcement = $state('');
   const newest = [...months].reverse();
   const titles = Object.fromEntries(widgets.map((widget) => [widget.id, widget.title]));
 
+  /** The two views of the page: the ready-made widgets, or the charts the owner made with the assistant. */
+  type View = 'ready' | 'own';
+  const views: { id: View; label: string }[] = [{ id: 'ready', label: 'Ready-made' }, { id: 'own', label: 'Your charts' }];
+  const panelIds: Record<View, string> = { ready: 'view-ready', own: 'your-charts' };
+  const ownChartsHash = `#${panelIds.own}`;
+  let view = $state<View>('ready');
+  const tabs: Record<View, HTMLButtonElement | undefined> = $state({ ready: undefined, own: undefined });
+
+  const viewFromHash = (): View => (location.hash === ownChartsHash ? 'own' : 'ready');
+  /** Switch the view and keep the address shareable: "#your-charts" for the owner's charts, no hash otherwise. */
+  function showView(next: View, focus = false) {
+    view = next;
+    confirmingDelete = null;
+    const url = new URL(location.href);
+    url.hash = next === 'own' ? ownChartsHash : '';
+    if (url.href !== location.href) history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    if (focus) tabs[next]?.focus();
+  }
+  /** Tabs follow the keyboard pattern of a tab list: arrows, Home and End move between them. */
+  function tabKeydown(event: KeyboardEvent) {
+    const index = views.findIndex((candidate) => candidate.id === view);
+    const target = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: views.length - 1 }[event.key];
+    if (target === undefined) return;
+    event.preventDefault();
+    showView(views[(target + views.length) % views.length].id, true);
+  }
+
   // svelte-ignore state_referenced_locally
-  onMount(() => layout.restore(data.account.id));
+  onMount(() => {
+    layout.restore(data.account.id);
+    view = viewFromHash();
+    const followHash = () => { view = viewFromHash(); };
+    window.addEventListener('hashchange', followHash);
+    return () => window.removeEventListener('hashchange', followHash);
+  });
 
   // The forecast streams in after the page is shown; until then the chart uses the illustrative scenario.
   $effect(() => {
@@ -53,32 +87,42 @@
     return start ? [{ date: start, number: index + 1, label: describeEvent(event) }] : [];
   }));
 
+  /** The built-in widgets and the owner's own charts are arranged the same way, each in its own grid. */
+  type Arrangement = typeof layout | typeof customCharts;
+  const titleOf = (id: string) => titles[id] ?? customCharts.get(id)?.spec.title ?? 'Chart';
+  // Cards only move within their own section: a chart is never dropped among the built-in widgets.
+  const arrangementOf = (id: string): Arrangement => (titles[id] ? layout : customCharts);
+
   function move(id: string, direction: -1 | 1) {
-    layout.move(id, direction);
-    announcement = `${titles[id]} moved to position ${layout.visible.indexOf(id) + 1} of ${layout.visible.length}.`;
+    const arrangement = arrangementOf(id);
+    arrangement.move(id, direction);
+    announcement = `${titleOf(id)} moved to position ${arrangement.visible.indexOf(id) + 1} of ${arrangement.visible.length}.`;
   }
   function setSpan(id: string, span: Span) {
-    layout.resize(id, span);
-    announcement = `${titles[id]} is now ${spanNames[layout.spans[id]]}.`;
+    const arrangement = arrangementOf(id);
+    arrangement.resize(id, span);
+    announcement = `${titleOf(id)} is now ${spanNames[arrangement.spans[id]]}.`;
   }
   /** Drag the right edge of a card: its width snaps to a third, a half, two thirds or full width. */
   function startResize(event: PointerEvent, id: string) {
+    const handle = event.currentTarget as HTMLElement;
+    const grid = handle.closest('.dashboard') as HTMLElement | null;
     if (!grid) return;
     event.preventDefault();
-    const handle = event.currentTarget as HTMLElement;
+    const arrangement = arrangementOf(id);
     const card = handle.closest('.widget') as HTMLElement;
     const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
     const column = (grid.getBoundingClientRect().width + gap) / 12;
     const left = card.getBoundingClientRect().left;
     resizing = id;
     handle.setPointerCapture(event.pointerId);
-    const follow = (moveEvent: PointerEvent) => layout.resize(id, Math.max(1, Math.round((moveEvent.clientX - left + gap) / column)));
+    const follow = (moveEvent: PointerEvent) => arrangement.resize(id, Math.max(1, Math.round((moveEvent.clientX - left + gap) / column)));
     const stop = () => {
       handle.removeEventListener('pointermove', follow);
       handle.removeEventListener('pointerup', stop);
       handle.removeEventListener('pointercancel', stop);
       resizing = null;
-      announcement = `${titles[id]} is now ${spanNames[layout.spans[id]]}.`;
+      announcement = `${titleOf(id)} is now ${spanNames[arrangement.spans[id]]}.`;
     };
     handle.addEventListener('pointermove', follow);
     handle.addEventListener('pointerup', stop);
@@ -90,11 +134,32 @@
   }
   function dragOver(event: DragEvent, id: string) {
     if (!dragging || dragging === id) return;
+    const arrangement = arrangementOf(id);
+    if (arrangementOf(dragging) !== arrangement) return;
     event.preventDefault();
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const after = event.clientY > box.top + box.height / 2;
-    const visible = layout.visible;
-    layout.placeBefore(dragging, after ? visible[visible.indexOf(id) + 1] ?? null : id);
+    const visible = arrangement.visible;
+    arrangement.placeBefore(dragging, after ? visible[visible.indexOf(id) + 1] ?? null : id);
+  }
+  function startDrag(event: DragEvent, id: string) {
+    dragging = id;
+    event.dataTransfer?.setData('text/plain', id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+  function endDrag() {
+    if (dragging) announcement = `${titleOf(dragging)} moved to position ${arrangementOf(dragging).visible.indexOf(dragging) + 1}.`;
+    dragging = null;
+  }
+
+  // Deleting asks once more on the same button, so a slip of the finger never removes a chart.
+  let confirmingDelete = $state<string | null>(null);
+  function deleteChart(id: string) {
+    if (confirmingDelete !== id) { confirmingDelete = id; return; }
+    const title = titleOf(id);
+    customCharts.remove(id);
+    confirmingDelete = null;
+    announcement = `${title} deleted.`;
   }
 
   function forecastDetails(): string[] {
@@ -121,6 +186,9 @@
   // The charts hide figures that are not plain text on screen; give them to the assistant.
   providePageDetails(() => [
     `Overview widgets shown: ${layout.visible.map((id) => titles[id]).join(', ')}.`,
+    customCharts.charts.length
+      ? `The owner's own charts (made with the assistant): ${customCharts.charts.map((chart) => chart.spec.title).join(', ')}.`
+      : 'The owner has not added charts of their own yet.',
     'Monthly balances 2025 (money in / money out / closing balance):',
     ...months.map((row) => `${row.name}: ${money(row.income)} / ${money(row.costs)} / ${money(row.balance)}`),
     `Lowest daily balance: ${money(lowest.balance)} on ${dateLabel(lowest.date)}.`,
@@ -130,14 +198,31 @@
   ].join('\n'));
 </script>
 
-<svelte:head><title>Overview</title></svelte:head>
-<Heading title="Overview" period={dateLabel(closing.date, true)} />
+<h1 class="sr-only">Overview</h1>
 
 <div class="dashboard-toolbar">
-  <button aria-pressed={customizing} onclick={() => customizing = !customizing}>{customizing ? 'Done' : 'Customize overview'}</button>
+  <div class="view-tabs" role="tablist" aria-label="What to show">
+    {#each views as option (option.id)}
+      <button bind:this={tabs[option.id]} role="tab" id="tab-{option.id}" aria-selected={view === option.id}
+        aria-controls={view === option.id ? panelIds[option.id] : undefined} tabindex={view === option.id ? 0 : -1}
+        onclick={() => showView(option.id)} onkeydown={tabKeydown}>
+        {option.label}
+        {#if option.id === 'own'}
+          <span class="tab-count" aria-hidden="true">{customCharts.charts.length}</span>
+          <span class="sr-only">({customCharts.charts.length} {customCharts.charts.length === 1 ? 'chart' : 'charts'})</span>
+        {/if}
+      </button>
+    {/each}
+  </div>
+  {#if view === 'ready' || customCharts.charts.length}
+    <button class="customize-toggle" aria-pressed={customizing} onclick={() => customizing = !customizing}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
+      {customizing ? 'Done' : 'Customize overview'}
+    </button>
+  {/if}
 </div>
 
-{#if customizing}
+{#if customizing && view === 'ready'}
   <section class="panel customize enter" aria-labelledby="customize-title">
     <div class="panel-head"><h2 id="customize-title">Customize your overview</h2><button class="textbtn" onclick={() => layout.reset()}>Reset to default</button></div>
     <p class="note">Choose what you want to see. Drag a card by its title bar to move it, or use its arrow buttons. Make a card wider or narrower with its size buttons or by dragging its right edge, so the cards fill each row. Your layout is saved in this browser.</p>
@@ -147,10 +232,14 @@
       {/each}
     </ul>
   </section>
+{:else if customizing && customCharts.charts.length}
+  <p class="customize-hint enter">Drag a chart by its title bar to move it, or use its arrow buttons. Change its width with the size buttons or by dragging its right edge. You can also rename a chart, change its style or delete it. Your charts are saved in this browser.</p>
 {/if}
 <p class="sr-only" role="status">{announcement}</p>
 
-<div class="dashboard" class:customizing class:resizing={resizing !== null} bind:this={grid}>
+{#if view === 'ready'}
+<div class="view-panel" role="tabpanel" id="view-ready" aria-labelledby="tab-ready">
+<div class="dashboard" class:customizing class:resizing={resizing !== null}>
   {#each layout.visible as id, position (id)}
     <div class="widget enter" class:dragging={dragging === id} style:--i={position} style:--span={layout.spans[id]}
       animate:flip={{ duration: prefersReducedMotion.current ? 0 : 240 }}
@@ -159,8 +248,7 @@
       {#if customizing}
         <!-- Cards move by their title bar, so the resize handle and the charts keep their own pointer gestures. -->
         <div class="widget-tools" draggable="true" role="toolbar" tabindex="-1" aria-label="Arrange {titles[id]}"
-          ondragstart={(event) => { dragging = id; event.dataTransfer?.setData('text/plain', id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'; }}
-          ondragend={() => { if (dragging) announcement = `${titles[dragging]} moved to position ${layout.visible.indexOf(dragging) + 1}.`; dragging = null; }}>
+          ondragstart={(event) => startDrag(event, id)} ondragend={endDrag}>
           <span class="drag-handle" aria-hidden="true">⠿</span><b>{titles[id]}</b>
           <button disabled={position === 0} onclick={() => move(id, -1)} aria-label="Move {titles[id]} up">↑</button>
           <button disabled={position === layout.visible.length - 1} onclick={() => move(id, 1)} aria-label="Move {titles[id]} down">↓</button>
@@ -329,3 +417,61 @@
     <p class="note">All widgets are hidden. Choose "Customize overview" to show some again.</p>
   {/each}
 </div>
+</div>
+
+{:else}
+<!-- The id matches the "#your-charts" link the Chat shows after a chart is added. -->
+<div class="view-panel custom-charts" role="tabpanel" id="your-charts" aria-labelledby="tab-own">
+  <p class="minor view-intro">Charts you made with the assistant. All figures come from your bank statement.</p>
+  {#if customCharts.charts.length}
+    <div class="dashboard" class:customizing class:resizing={resizing !== null}>
+      {#each customCharts.charts as chart, position (chart.id)}
+        {@const id = chart.id}
+        <div class="widget enter" class:dragging={dragging === id} style:--i={position} style:--span={chart.span}
+          animate:flip={{ duration: prefersReducedMotion.current ? 0 : 240 }}
+          role={customizing ? 'group' : undefined} aria-label={customizing ? chart.spec.title : undefined}
+          ondragover={(event) => dragOver(event, id)} ondrop={(event) => event.preventDefault()}>
+          {#if customizing}
+            <div class="widget-tools" draggable="true" role="toolbar" tabindex="-1" aria-label="Arrange {chart.spec.title}"
+              ondragstart={(event) => startDrag(event, id)} ondragend={endDrag}>
+              <span class="drag-handle" aria-hidden="true">⠿</span>
+              <label class="sr-only" for="chart-title-{id}">Title of the chart</label>
+              <!-- Text inside the input stays selectable: dragging starts only from the rest of the bar. -->
+              <input class="chart-title-input" id="chart-title-{id}" value={chart.spec.title} maxlength="80" draggable="false"
+                ondragstart={(event) => event.preventDefault()}
+                onchange={(event) => { customCharts.rename(id, event.currentTarget.value); event.currentTarget.value = customCharts.get(id)?.spec.title ?? ''; }} />
+              <button disabled={position === 0} onclick={() => move(id, -1)} aria-label="Move {chart.spec.title} up">↑</button>
+              <button disabled={position === customCharts.charts.length - 1} onclick={() => move(id, 1)} aria-label="Move {chart.spec.title} down">↓</button>
+              <span class="size-buttons" role="group" aria-label="Width of {chart.spec.title}">
+                {#each customCharts.spansFor(id) as span (span)}
+                  <button aria-pressed={chart.span === span} onclick={() => setSpan(id, span)} aria-label="{spanNames[span]}">{spanLabels[span]}</button>
+                {/each}
+              </span>
+              {#if !isBreakdown(chart.spec)}
+                <label class="sr-only" for="chart-type-{id}">Chart style</label>
+                <select id="chart-type-{id}" value={chart.spec.chart_type}
+                  onchange={(event) => customCharts.setChartType(id, event.currentTarget.value as ChartType)}>
+                  {#each CHART_TYPES as chartType (chartType)}<option value={chartType}>{chartTypeLabels[chartType]}</option>{/each}
+                </select>
+              {/if}
+              <button class="danger" class:confirming={confirmingDelete === id} onclick={() => deleteChart(id)}
+                onblur={() => { if (confirmingDelete === id) confirmingDelete = null; }}>
+                {confirmingDelete === id ? 'Click again to delete' : 'Delete'}
+              </button>
+            </div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span class="resize-handle" aria-hidden="true" draggable="false" title="Drag to resize" onpointerdown={(event) => startResize(event, id)}></span>
+          {/if}
+          <section class="panel"><CustomChart spec={chart.spec} /></section>
+        </div>
+      {/each}
+    </div>
+  {:else}
+    <div class="panel custom-empty">
+      <p>You have no charts of your own yet.</p>
+      <p class="minor">Ask the assistant for one in the Chat, for example "Show money in and out per week as a line chart", then choose "Add to overview".</p>
+      <a class="button action" href="/assistant">Open the Chat</a>
+    </div>
+  {/if}
+</div>
+{/if}

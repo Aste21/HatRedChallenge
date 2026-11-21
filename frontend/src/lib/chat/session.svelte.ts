@@ -1,8 +1,9 @@
+import { normaliseSpec, type ChartSpec } from '../charts/custom.ts';
 import { collectPageContext } from './page-context.ts';
 
-export type ChatMessage = { id: number; role: 'user' | 'assistant'; content: string };
+export type ChatMessage = { id: number; role: 'user' | 'assistant'; content: string; chart: ChartSpec | null };
 export type ConversationSummary = { id: string; title: string; created_at: string; updated_at: string };
-type StoredConversation = ConversationSummary & { messages: { role: 'user' | 'assistant'; content: string }[] };
+type StoredConversation = ConversationSummary & { messages: { role: 'user' | 'assistant'; content: string; chart?: unknown }[] };
 
 // One key per account, so a shared browser never reopens another business's conversation.
 let activeConversationKey = 'chat.active';
@@ -82,7 +83,7 @@ class ChatSession {
       if (token !== this.#loadToken) return;
       this.conversationId = conversation.id;
       this.title = conversation.title;
-      this.messages = conversation.messages.map(({ role, content }) => ({ id: this.#nextId++, role, content }));
+      this.messages = conversation.messages.map(({ role, content, chart }) => ({ id: this.#nextId++, role, content, chart: normaliseSpec(chart) }));
       this.draft = '';
       rememberActive(conversation.id);
     } catch (reason) {
@@ -107,7 +108,7 @@ class ChatSession {
   async send(text: string) {
     const question = text.trim();
     if (!question || this.pending || this.loading) return;
-    this.messages.push({ id: this.#nextId++, role: 'user', content: question });
+    this.messages.push({ id: this.#nextId++, role: 'user', content: question, chart: null });
     this.draft = '';
     await this.#requestReply();
   }
@@ -158,7 +159,12 @@ class ChatSession {
       if (this.#controller !== controller) return;
       this.conversationId = payload.conversation_id;
       this.title = payload.title;
-      this.messages.push({ id: this.#nextId++, role: 'assistant', content: payload.reply || 'I have no answer to that yet.' });
+      this.messages.push({
+        id: this.#nextId++,
+        role: 'assistant',
+        content: payload.reply || 'I have no answer to that yet.',
+        chart: normaliseSpec(payload.chart)
+      });
       rememberActive(payload.conversation_id);
       this.refreshHistory();
     } catch (reason) {
