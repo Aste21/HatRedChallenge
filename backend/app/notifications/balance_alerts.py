@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 
+from app.accounts import ACCOUNTS
 from app.config import Settings, get_settings
 from app.notifications.email import send_email, smtp_configured
 
@@ -23,24 +24,30 @@ def send_alert(settings: Settings, balance: Decimal, booked_on: date, demo: bool
     body = (
         f"Your account closed below zero on {day}.\n\n"
         f"Closing balance: {amount}\n\n"
-        "Open Cashflow to review your balance and upcoming payments."
+        "Open your Overview to review your balance and upcoming payments."
     )
     html = f"""
     <div style="max-width:520px;margin:24px auto;font:16px Arial,sans-serif;color:#20332e">
-      <p style="color:#526660">Cashflow · Balance alert</p>
+      <p style="color:#526660">Overview · Balance alert</p>
       <h2>Your account closed below zero</h2>
       <div style="padding:20px;background:#fff3ef;border-left:4px solid #b43b21">
         <div>Closing balance · {day}</div>
         <strong style="font-size:32px;color:#982e19">{amount}</strong>
       </div>
-      <p>Open Cashflow to review your balance and upcoming payments.</p>
+      <p>Open your Overview to review your balance and upcoming payments.</p>
     </div>
     """
     send_email(settings, settings.owner_email, subject, body, html=html)
 
 
-def check_balance(settings: Settings, api_url: str, database: sqlite3.Connection) -> None:
-    response = httpx.get(f"{api_url.rstrip('/')}/api/forecast", params={"horizon": 90}, timeout=30)
+def check_balance(settings: Settings, api_url: str, database: sqlite3.Connection, account_id: str) -> None:
+    # The backend serves one account per request, named in the X-Account-Id header.
+    response = httpx.get(
+        f"{api_url.rstrip('/')}/api/forecast",
+        params={"horizon": 90},
+        headers={"X-Account-Id": account_id},
+        timeout=30,
+    )
     response.raise_for_status()
     forecast = response.json()
     account = forecast["account_id"]
@@ -80,7 +87,8 @@ def main() -> None:
 
     if args.demo:
         root = Path(__file__).resolve().parents[3]
-        statement = json.loads((root / "frontend/src/lib/statement.json").read_text(encoding="utf-8"))
+        statement_path = root / "frontend/src/lib/server/statements/amalfi.json"
+        statement = json.loads(statement_path.read_text(encoding="utf-8"))
         lowest = min(statement["history"], key=lambda row: row["balance"])
         balance = Decimal(lowest["balance"]) / 100
         if balance >= 0:
@@ -99,10 +107,11 @@ def main() -> None:
             "(account TEXT PRIMARY KEY, booked_on TEXT NOT NULL, alerted INTEGER NOT NULL)"
         )
         while True:
-            try:
-                check_balance(settings, args.api_url, database)
-            except (httpx.HTTPError, OSError, sqlite3.Error, KeyError, ValueError, ArithmeticError):
-                logging.exception("Balance check failed")
+            for account_id in ACCOUNTS:
+                try:
+                    check_balance(settings, args.api_url, database, account_id)
+                except (httpx.HTTPError, OSError, sqlite3.Error, KeyError, ValueError, ArithmeticError):
+                    logging.exception("Balance check failed for %s", account_id)
             time.sleep(args.interval)
     finally:
         database.close()
