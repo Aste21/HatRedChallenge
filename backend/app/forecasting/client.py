@@ -1,10 +1,14 @@
 import datetime
+import time
 from functools import lru_cache
 
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.service_client import ServiceClient
+from app.service_client import ServiceClient, ServiceUnavailableError
+
+FORECAST_CACHE_SECONDS = 60
+FAILURE_CACHE_SECONDS = 15
 
 
 class DailyBand(BaseModel):
@@ -73,6 +77,7 @@ class ForecastClient:
         """
         self._service_client = service_client
         self._account_id = account_id
+        self._cache: dict[int, tuple[float, Forecast | ServiceUnavailableError]] = {}
 
     @property
     def configured(self) -> bool:
@@ -91,14 +96,39 @@ class ForecastClient:
 
         Returns:
             The forecast with daily bands and the safe-to-lock amounts for 30/60/90 days.
+
+        Steps:
+            1. Reuse a recent answer: every page and chat message needs the forecast, but it only changes
+               when a new statement is uploaded. A recent failure is reused too, so a service that is
+               down does not slow down every page by the connection timeout.
+            2. Otherwise ask the forecast service and remember the forecast or the failure.
         """
+        cached = self._cache.get(horizon_days)
+        if cached is not None:
+            stored_at, result = cached
+            max_age = (
+                FAILURE_CACHE_SECONDS
+                if isinstance(result, ServiceUnavailableError)
+                else FORECAST_CACHE_SECONDS
+            )
+            if time.monotonic() - stored_at < max_age:
+                if isinstance(result, ServiceUnavailableError):
+                    raise result
+                return result
+
         lock_days = [days for days in (30, 60, 90) if days <= horizon_days] or [horizon_days]
-        payload = self._service_client.request_json(
-            "POST",
-            "/forecast",
-            json={"account_id": self._account_id, "horizon": horizon_days, "lock_days": lock_days},
-        )
-        return Forecast.model_validate(payload)
+        try:
+            payload = self._service_client.request_json(
+                "POST",
+                "/forecast",
+                json={"account_id": self._account_id, "horizon": horizon_days, "lock_days": lock_days},
+            )
+        except ServiceUnavailableError as error:
+            self._cache[horizon_days] = (time.monotonic(), error)
+            raise
+        forecast = Forecast.model_validate(payload)
+        self._cache[horizon_days] = (time.monotonic(), forecast)
+        return forecast
 
 
 @lru_cache
