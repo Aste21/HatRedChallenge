@@ -3,19 +3,25 @@
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 env/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+backend/var/
 
 # Frontend
-frontend/node_modules/
-frontend/.svelte-kit/
+node_modules/
+.svelte-kit/
+build/
 
 # Secrets and cluster credentials
 .env
 .env/
 .env.*
 !.env.example
+/secrets
 kubeconfig
 *kubeconfig*
 .kube/

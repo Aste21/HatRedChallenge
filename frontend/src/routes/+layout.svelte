@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { page } from '$app/state';
+  import ChatWidget from '#lib/chat/ChatWidget.svelte';
+  import { chat } from '#lib/chat/session.svelte.ts';
   import './ledger.css';
   import type { LayoutProps } from './$types';
 
   let { children }: LayoutProps = $props();
+  onMount(() => chat.restore());
   const links = [
     { path: '/', label: 'Cashflow' },
     { path: '/proposals', label: 'Proposals' },
@@ -24,3 +28,4 @@
   </div>
 </header>
 <main class="container" id="workspace">{@render children()}</main>
+{#if !page.url.pathname.startsWith('/assistant')}<ChatWidget />{/if}

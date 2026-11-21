@@ -1,10 +1,39 @@
 <script lang="ts">
   import Heading from '#lib/Heading.svelte';
   import BalanceChart from '#lib/BalanceChart.svelte';
-  import { months, december, closing, bills, lowest, dateLabel, money } from '#lib/ledger.ts';
+  import { months, december, closing, bills, lowest, scenario, dateLabel, money } from '#lib/ledger.ts';
+  import { providePageDetails } from '#lib/chat/page-context.ts';
+  import { euro } from '#lib/forecast.ts';
+  import type { PageProps } from './$types';
 
+  let { data }: PageProps = $props();
   let allMonths = $state(false);
   const newest = [...months].reverse();
+
+  function forecastDetails(): string[] {
+    const daily = data.forecast?.official.daily;
+    if (!daily) {
+      return [
+        'Chart "Forecast" tab, illustrative January 2026 scenario with scheduled bills only and no receipts:',
+        ...[7, 14, 31].map((days) => `after ${days} days (${dateLabel(scenario[days - 1].date)}): ${money(scenario[days - 1].balance)}`)
+      ];
+    }
+    return [
+      'Chart "Forecast" tab, forecast from the forecasting service (expected balance, likely range 5th–95th percentile):',
+      ...[30, 60, 90].filter((days) => days <= daily.length).map((days) => {
+        const day = daily[days - 1];
+        return `after ${days} days (${dateLabel(day.date)}): ${euro(day.p50)} (likely ${euro(day.p5)} to ${euro(day.p95)})`;
+      })
+    ];
+  }
+
+  // The chart and the collapsed table hide figures that are not plain text on screen; give them to the assistant.
+  providePageDetails(() => [
+    'Monthly balances 2025 (money in / money out / closing balance):',
+    ...months.map((row) => `${row.name}: ${money(row.income)} / ${money(row.costs)} / ${money(row.balance)}`),
+    `Lowest daily balance: ${money(lowest.balance)} on ${dateLabel(lowest.date)}.`,
+    ...forecastDetails()
+  ].join('\n'));
 </script>
 
 <svelte:head><title>Cashflow</title></svelte:head>
@@ -17,7 +46,7 @@
 </div>
 
 <div class="overview">
-  <BalanceChart />
+  <BalanceChart forecast={data.forecast?.official.daily ?? null} />
   <section class="panel schedule">
     <div class="panel-head"><h2>Scheduled payments</h2><span class="minor">January 2026</span></div>
     <ul>
