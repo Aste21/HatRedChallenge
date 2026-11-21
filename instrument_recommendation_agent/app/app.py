@@ -1,9 +1,10 @@
 from datetime import date
+from typing import Literal
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field, model_validator
 
-from agent import run_agent
+from agent import NotificationDraft, run_agent
 
 
 app = FastAPI(title="Instrument Recommendation Agent")
@@ -33,17 +34,34 @@ class RecommendationRequest(BaseModel):
     with_assumptions: ScenarioLimits | None = None
 
 
+class RecommendedOffer(BaseModel):
+    offer_id: str
+    name: str
+    term_days: int
+    currency: Literal["EUR"]
+    min_amount: str
+    max_amount: str
+    annual_rate_pct: float
+
+
 class RecommendationResponse(BaseModel):
-    recommendation: str
+    account_id: str
+    as_of: date
+    offers: list[RecommendedOffer]
+    notification: NotificationDraft
 
 
 @app.post("/recommendations", response_model=RecommendationResponse)
 def recommend(request: RecommendationRequest) -> RecommendationResponse:
-    safe_to_lock_eur = {
-        limit.days: limit.amount for limit in request.official.safe_to_lock
-    }
-    recommendation = run_agent(
+    offers, notification = run_agent(
         as_of=request.as_of,
-        safe_to_lock_eur=safe_to_lock_eur,
+        safe_to_lock_eur={
+            limit.days: limit.amount for limit in request.official.safe_to_lock
+        },
     )
-    return RecommendationResponse(recommendation=recommendation)
+    return RecommendationResponse(
+        account_id=request.account_id,
+        as_of=request.as_of,
+        offers=[RecommendedOffer.model_validate(offer) for offer in offers],
+        notification=notification,
+    )

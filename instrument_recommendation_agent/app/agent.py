@@ -1,26 +1,29 @@
+import json
 import os
 from datetime import date
 from functools import lru_cache
 
 from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 from tools import list_offers, make_evaluate_offer
 
 
+class NotificationDraft(BaseModel):
+    subject: str = Field(description="Short email subject on one line.")
+    body: str = Field(description="Plain-text email body.")
+
+
 SYSTEM_PROMPT = """
-Recommend suitable instruments from the fictional EUR offer catalog.
+Write an English email draft about the supplied deposit evaluation.
 
-1. Call list_offers to get the available offers.
-2. Call evaluate_offer for every listed offer ID.
-3. Recommend only offers marked eligible. Use the amount and term returned
-   by the tool.
-4. Present eligible offers as alternatives because they draw from the same
-   cash. Give the maximum amount for each alternative.
-5. Explain any missing forecast durations or amounts below an offer's minimum.
-6. If no offer qualifies, say so and explain the tool results.
-
-Write the final recommendation in English.
+Use only the evaluated offers and facts supplied in the request.
+Describe eligible offers as alternatives that draw from the same cash.
+Present amounts as forecast-based limits and invite the recipient to
+review an offer in the app. Identify the offers as demo offers.
+If no offer qualifies, explain why using the evaluation results.
 """.strip()
 
 
@@ -35,30 +38,53 @@ def get_model() -> ChatOpenAI:
     )
 
 
+def draft_notification(
+    *,
+    as_of: date,
+    evaluations: list[dict],
+) -> NotificationDraft:
+    agent = create_agent(
+        model=get_model(),
+        response_format=ToolStrategy(NotificationDraft),
+        system_prompt=SYSTEM_PROMPT,
+    )
+    payload = {
+        "as_of": as_of.isoformat(),
+        "currency": "EUR",
+        "evaluations": evaluations,
+    }
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": json.dumps(payload)}]}
+    )
+    return result["structured_response"]
+
+
 def run_agent(
     *,
     as_of: date,
     safe_to_lock_eur: dict[int, float],
-) -> str:
+) -> tuple[list[dict], NotificationDraft]:
     evaluate_offer = make_evaluate_offer(safe_to_lock_eur=safe_to_lock_eur)
+    catalog = list_offers.invoke({})
+    offers = []
+    evaluations = []
 
-    agent = create_agent(
-        model=get_model(),
-        tools=[list_offers, evaluate_offer],
-        system_prompt=SYSTEM_PROMPT,
-    )
+    for offer in catalog:
+        evaluation = evaluate_offer.invoke({"offer_id": offer["offer_id"]})
+        evaluations.append(evaluation)
 
-    result = agent.invoke(
-        {
-            "messages": [
+        if evaluation["status"] == "eligible":
+            offers.append(
                 {
-                    "role": "user",
-                    "content": (
-                        "Evaluate the catalog using the official forecast "
-                        f"based on the statement as of {as_of.isoformat()}."
-                    ),
+                    "offer_id": offer["offer_id"],
+                    "name": offer["name"],
+                    "term_days": offer["term_days"],
+                    "currency": "EUR",
+                    "min_amount": f"{offer['min_amount_eur']:.2f}",
+                    "max_amount": f"{evaluation['max_amount_eur']:.2f}",
+                    "annual_rate_pct": offer["annual_rate_pct"],
                 }
-            ]
-        }
-    )
-    return result["messages"][-1].text
+            )
+
+    notification = draft_notification(as_of=as_of, evaluations=evaluations)
+    return offers, notification
