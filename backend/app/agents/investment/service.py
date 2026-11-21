@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 import smtplib
 import threading
@@ -97,7 +98,8 @@ class ProposalService:
         self._repository = repository
         self._lock = threading.Lock()
         self._cached: (
-            tuple[float, datetime.date, list[Proposal], NotificationDraft | None, list[str]] | None
+            tuple[float, tuple[datetime.date, str], list[Proposal], NotificationDraft | None, list[str]]
+            | None
         ) = None
 
     def board(self) -> ProposalBoard:
@@ -108,23 +110,29 @@ class ProposalService:
 
         Steps:
             1. Forecast the balance (fast; raises `ServiceUnavailableError` if the forecast service is down).
-            2. Reuse the instrument agent's answer for the same statement date for 15 minutes, because it
-               calls the LLM and takes several seconds.
+            2. Reuse the instrument agent's answer for the same statement date and official news events
+               for 15 minutes, because it calls the LLM and takes several seconds.
             3. Merge the stored decisions: an approval in a group supersedes its alternatives.
         """
         forecast = self._forecast_client.fetch_forecast()
+        forecast_key = (
+            forecast.as_of,
+            json.dumps(
+                [event.model_dump() for event in forecast.official.events], sort_keys=True, default=str
+            ),
+        )
         with self._lock:
             cached = self._cached
             if (
                 cached is None
-                or cached[1] != forecast.as_of
+                or cached[1] != forecast_key
                 or time.monotonic() - cached[0] > RECOMMENDATION_CACHE_SECONDS
             ):
                 proposals, draft, warnings = self._build_proposals(forecast)
-                cached = (time.monotonic(), forecast.as_of, proposals, draft, warnings)
+                cached = (time.monotonic(), forecast_key, proposals, draft, warnings)
                 if not warnings:
                     self._cached = cached
-        _, as_of, proposals, draft, warnings = cached
+        _, (as_of, _), proposals, draft, warnings = cached
 
         decisions = self._repository.list_decisions()
         approved_groups = {

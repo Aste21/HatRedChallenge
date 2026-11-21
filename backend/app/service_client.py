@@ -34,12 +34,16 @@ class ServiceClient:
         """
         return bool(self._base_url)
 
-    def request_json(self, method: str, path: str, **request_options: Any) -> Any:
+    def request_json(
+        self, method: str, path: str, timeout_seconds: float | None = None, **request_options: Any
+    ) -> Any:
         """Call the service and return the decoded JSON body.
 
         Args:
             method: HTTP method, e.g. `GET` or `POST`.
             path: Path relative to the base URL, starting with `/`.
+            timeout_seconds: Timeout for this request; defaults to the client's timeout. Endpoints that
+                call the LLM need a longer one.
             **request_options: Passed to `httpx.request` (`json`, `params`, ...).
 
         Returns:
@@ -54,7 +58,10 @@ class ServiceClient:
             raise ServiceUnavailableError(f"The {self.service_name} is not connected.")
         try:
             response = httpx.request(
-                method, f"{self._base_url}{path}", timeout=self._timeout_seconds, **request_options
+                method,
+                f"{self._base_url}{path}",
+                timeout=timeout_seconds or self._timeout_seconds,
+                **request_options,
             )
             response.raise_for_status()
             return response.json()

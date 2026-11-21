@@ -44,6 +44,15 @@ def _forecast_lines(forecast: Forecast) -> list[str]:
         )
         + ".",
     ]
+    if forecast.with_assumptions.events:
+        lines.append(
+            "News the forecast takes into account: "
+            + "; ".join(
+                f"{event.why or event.type} ({event.certainty})" for event in forecast.with_assumptions.events
+            )
+            + ". Official changes are in the figures above; assumptions only in the 'with assumptions' "
+            f"scenario (expected end balance {format_euro(forecast.with_assumptions.end_balance_p50)})."
+        )
     return lines
 
 

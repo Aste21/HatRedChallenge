@@ -55,6 +55,11 @@ class Proposal(BaseModel):
     amount: float
     term_days: int | None = None
     annual_rate_pct: float | None = None
+    min_amount: float | None = None
+    interest_eur: float | None = None
+    lowest_balance: float | None = None
+    buffer_eur: float | None = None
+    safe_amount: float | None = None
     analysis: str
     recommendation: str
     rationale: str
@@ -173,6 +178,11 @@ def deposit_proposal(forecast: Forecast, offer: InstrumentOffer) -> Proposal:
         amount=offer.max_amount,
         term_days=offer.term_days,
         annual_rate_pct=offer.annual_rate_pct,
+        min_amount=offer.min_amount,
+        interest_eur=round(interest, 2),
+        lowest_balance=limit.lowest_balance,
+        buffer_eur=scenario.buffer.amount,
+        safe_amount=limit.amount,
         analysis=(
             f"Your balance on {_format_date(forecast.as_of)} was {format_euro(forecast.start_balance)}. "
             f"Even in a bad case, the balance should not drop below {format_euro(limit.lowest_balance)} "
@@ -222,6 +232,7 @@ def credit_line_proposal(forecast: Forecast) -> Proposal | None:
         kind="credit_line",
         title=f"Arrange a credit line of {format_euro(credit_amount)}",
         amount=credit_amount,
+        lowest_balance=lowest_day.p5,
         analysis=(
             f"In a bad case your balance could fall to {format_euro(lowest_day.p5)} around "
             f"{_format_date(lowest_day.date)}. The chance of going below zero in the next "

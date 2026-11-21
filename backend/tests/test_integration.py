@@ -9,10 +9,11 @@ from app.agents.chat.context import build_business_snapshot
 from app.agents.investment.agent import InstrumentRecommendation
 from app.agents.investment.service import ProposalService, get_proposal_service
 from app.config import Settings
-from app.forecasting.client import Forecast
+from app.forecasting.client import Forecast, ForecastClient, get_forecast_client
 from app.main import app
 from app.service_client import ServiceUnavailableError
 from app.storage.decisions import DecisionRepository, get_decision_repository
+from app.storage.news_impacts import NewsImpactRepository, get_news_impact_repository
 
 AS_OF = datetime.date(2025, 12, 31)
 
@@ -208,3 +209,71 @@ def test_business_snapshot_contains_forecast_and_skips_unavailable_news(
     assert "30 days €7,391.53" in snapshot
     assert "Main Street Real Estate GmbH −€3,800.00 on day 1" in snapshot
     assert "news" not in snapshot.lower()
+
+
+ENERGY_EVENT = {
+    "type": "shift_amount",
+    "stream": "City Energy & Utilities AG",
+    "from": "2026-02-01",
+    "change_pct": 15.0,
+    "certainty": "official",
+    "why": "supplier letter: tariff +15% from 1 Feb",
+}
+
+
+class RecordingServiceClient:
+    """Stands in for the forecast service and records what the backend sent."""
+
+    configured = True
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict]] = []
+
+    def request_json(self, method: str, path: str, timeout_seconds: float | None = None, **options) -> dict:
+        self.requests.append((path, options.get("json", {})))
+        if path == "/news/events":
+            return {
+                "account_id": "amalfi",
+                "events": [ENERGY_EVENT],
+                "rejected": [{"event": {}, "reason": "x"}],
+            }
+        return make_forecast().model_dump(mode="json")
+
+
+def test_applied_news_events_are_sent_with_the_forecast(tmp_path: Path) -> None:
+    impact_repository = NewsImpactRepository(tmp_path / "impacts.sqlite3")
+    service_client = RecordingServiceClient()
+    forecast_client = ForecastClient(service_client, "amalfi", impact_repository.all_events, 60.0)
+    app.dependency_overrides[get_forecast_client] = lambda: forecast_client
+    app.dependency_overrides[get_news_impact_repository] = lambda: impact_repository
+    try:
+        client = TestClient(app)
+        applied = client.post(
+            "/api/news/impacts",
+            json={"article_id": "abc123def456", "title": "Energy prices rise", "summary": "Tariff +15 %"},
+        ).json()
+        impacts = client.get("/api/news/impacts").json()["impacts"]
+        forecast_client.fetch_forecast()
+        removed = client.delete("/api/news/impacts/abc123def456")
+        missing = client.delete("/api/news/impacts/abc123def456")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert applied["events"] == [ENERGY_EVENT]
+    assert applied["rejected_count"] == 1
+    assert [impact["article_id"] for impact in impacts] == ["abc123def456"]
+    forecast_request = next(body for path, body in service_client.requests if path == "/forecast")
+    assert forecast_request["events"] == [ENERGY_EVENT]
+    assert removed.status_code == 204
+    assert missing.status_code == 404
+    assert impact_repository.all_events() == []
+
+
+def test_deposit_proposal_shows_offer_range_and_interest(client: TestClient) -> None:
+    proposal = client.get("/api/proposals").json()["proposals"][0]
+
+    assert proposal["min_amount"] == 1000.0
+    assert proposal["lowest_balance"] == 28788.20
+    assert proposal["buffer_eur"] == 21396.67
+    assert proposal["safe_amount"] == 7391.53
+    assert proposal["interest_eur"] == round(7391.53 * 0.035 * 30 / 365, 2)
