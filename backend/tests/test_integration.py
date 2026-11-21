@@ -1,6 +1,7 @@
 import datetime
+import smtplib
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -230,6 +231,42 @@ def test_approval_emails_the_configured_owner_once(
     assert deliver.call_args.args[1] == recipient
     notifications = client.get("/api/notifications").json()["notifications"]
     assert [(row["status"], row["recipient"]) for row in notifications] == [("sent", "Business owner")]
+
+
+@pytest.mark.parametrize("copy_refused", [False, True])
+def test_approval_sends_one_blind_copy_and_checks_both_recipients(
+    client: TestClient, repository: DecisionRepository, monkeypatch: pytest.MonkeyPatch, copy_refused: bool
+) -> None:
+    owner = "owner@example.org"
+    copy = "second@example.org"
+    settings = Settings(
+        llm_base_url="http://unused", smtp_host="smtp.example.org", smtp_user="sender@example.org",
+        smtp_password="unused", owner_email=owner, approval_copy_email=copy,
+    )
+    service = ProposalService(
+        settings, FakeForecastClient(make_forecast()), FakeInstrumentAgentClient(), repository
+    )
+    app.dependency_overrides[get_proposal_service] = lambda: service
+
+    # Run smtplib's real envelope and header handling with a local transport.
+    smtp = smtplib.SMTP()
+    smtp.ehlo_resp = b"ok"
+    sendmail = Mock(return_value={copy: (550, b"refused")} if copy_refused else {})
+    monkeypatch.setattr(smtp, "sendmail", sendmail)
+    monkeypatch.setattr(smtp, "starttls", Mock())
+    monkeypatch.setattr(smtp, "login", Mock())
+    monkeypatch.setattr(smtplib, "SMTP", Mock(return_value=nullcontext(smtp)))
+
+    path = "/api/proposals/amalfi-deposit_30d-2025-12-31/decision"
+    response = client.post(path, json={"decision": "approved"})
+    assert response.status_code == 200
+    assert response.json()["notification_status"] == ("failed" if copy_refused else "sent")
+    assert client.post(path, json={"decision": "approved"}).status_code == 409
+    sendmail.assert_called_once()
+    sender, envelope, payload = sendmail.call_args.args[:3]
+    assert sender == settings.smtp_user and envelope == [owner, copy]
+    assert copy.encode() not in payload
+    assert owner.encode() in payload
 
 
 def test_decline_records_no_transaction(client: TestClient) -> None:

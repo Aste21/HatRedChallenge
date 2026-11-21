@@ -33,13 +33,15 @@ class Settings(MailSettings):
         news_api_url: Base URL of the news service (`news/`). Empty = not connected.
         service_timeout_seconds: Timeout for calls to the forecast and news services.
         instrument_timeout_seconds: Timeout for the instrument agent, which calls the LLM itself.
-        owner_email: Recipient of notifications (approval confirmations).
+        owner_email: Primary recipient of notifications.
+        approval_copy_email: Optional blind-copy recipient for approval confirmations.
         smtp_host: SMTP server; when empty, notifications stay in the in-app outbox only.
         smtp_port: SMTP port (STARTTLS).
         smtp_user: SMTP login, also used as the sender address.
         smtp_password: SMTP password.
     """
 
+    approval_copy_email: str = ""
     llm_base_url: str
     llm_model: str = ""
     llm_api_key: str = "EMPTY"

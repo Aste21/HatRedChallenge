@@ -16,10 +16,13 @@ def send_email(
     body: str,
     *,
     html: str | None = None,
+    bcc: str | None = None,
 ) -> None:
     message = EmailMessage()
     message["From"] = settings.smtp_user
     message["To"] = recipient
+    if bcc and bcc.strip().casefold() != recipient.strip().casefold():
+        message["Bcc"] = bcc.strip()
     message["Subject"] = subject
     message.set_content(body)
 
@@ -29,4 +32,6 @@ def send_email(
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
         server.starttls(context=ssl.create_default_context())
         server.login(settings.smtp_user, settings.smtp_password)
-        server.send_message(message)
+        refused = server.send_message(message)
+        if refused:
+            raise smtplib.SMTPRecipientsRefused(refused)

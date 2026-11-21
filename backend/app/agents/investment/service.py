@@ -287,7 +287,10 @@ class ProposalService:
         if not smtp_configured(self._settings):
             return "queued"
         try:
-            send_email(self._settings, notification.recipient, notification.subject, notification.body)
+            send_email(
+                self._settings, notification.recipient, notification.subject, notification.body,
+                bcc=self._settings.approval_copy_email,
+            )
         except (OSError, smtplib.SMTPException):
             logger.exception("Sending the notification e-mail failed")
             self._repository.set_notification_status(notification.id, "failed")

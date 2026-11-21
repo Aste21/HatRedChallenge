@@ -20,7 +20,7 @@ Running the command again updates the CFO deployment and reuses its PVC and appl
 .\scripts\deploy-openshift.ps1 -WhatIf
 ```
 
-Approval confirmations use the backend-only `smtp-settings` Secret in `cfo-ai`. Set `SMTP_HOST`, `SMTP_PORT` (STARTTLS), `SMTP_USER`, `SMTP_PASSWORD` and `OWNER_EMAIL`. Each new approval sends its confirmation to the configured owner. Without the Secret, confirmations stay in the application outbox. Restart the backend after rotating SMTP settings.
+Approval confirmations use the backend-only `smtp-settings` Secret in `cfo-ai`. Set `SMTP_HOST`, `SMTP_PORT` (STARTTLS), `SMTP_USER`, `SMTP_PASSWORD` and `OWNER_EMAIL`. Each new approval sends its confirmation to the owner and an optional blind copy to `APPROVAL_COPY_EMAIL`. The backend records `sent` when SMTP accepts all recipients. Use a delivery-capable SMTP account for a real inbox. Ethereal captures messages in its test mailbox. Without the Secret, confirmations stay in the application outbox. Restart the backend after rotating SMTP settings.
 
 ## Access and acceptance
 
