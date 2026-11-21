@@ -98,8 +98,7 @@ def _answer_request(
     if request.page_context:
         content.extend([request.page_context.title, request.page_context.content])
     guardrails.check(content)
-    with trace_span("cfo.business_context"):
-        snapshot = business_snapshot()
+    snapshot = business_snapshot()
     if snapshot:
         guardrails.check([snapshot])
     try:

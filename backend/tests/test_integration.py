@@ -1,6 +1,8 @@
 import datetime
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,10 +10,11 @@ from fastapi.testclient import TestClient
 from app.agents.chat.context import build_business_snapshot
 from app.agents.investment.agent import InstrumentRecommendation
 from app.agents.investment.service import ProposalService, get_proposal_service
+from app.agents.news.client import NewsClient
 from app.config import Settings
-from app.forecasting.client import Forecast
+from app.forecasting.client import Forecast, ForecastClient
 from app.main import app
-from app.service_client import ServiceUnavailableError
+from app.service_client import ServiceClient, ServiceUnavailableError
 from app.storage.decisions import DecisionRepository, get_decision_repository
 
 AS_OF = datetime.date(2025, 12, 31)
@@ -59,7 +62,7 @@ class FakeForecastClient:
     def __init__(self, forecast: Forecast) -> None:
         self.forecast = forecast
 
-    def fetch_forecast(self, horizon_days: int = 90) -> Forecast:
+    def fetch_forecast(self, horizon_days: int = 90, *, trace_attributes: dict | None = None) -> Forecast:
         return self.forecast
 
 
@@ -208,3 +211,46 @@ def test_business_snapshot_contains_forecast_and_skips_unavailable_news(
     assert "30 days €7,391.53" in snapshot
     assert "Main Street Real Estate GmbH −€3,800.00 on day 1" in snapshot
     assert "news" not in snapshot.lower()
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_snapshot_traces_forecast_cache_and_news_outcome(
+    repository: DecisionRepository, monkeypatch: pytest.MonkeyPatch, available: bool
+) -> None:
+    forecast_http = Mock(spec=ServiceClient, configured=True)
+    news_http = Mock(spec=ServiceClient, configured=True)
+    if available:
+        forecast_http.request_json.return_value = make_forecast().model_dump()
+        news_http.request_json.return_value = {"articles": []}
+    else:
+        forecast_http.request_json.side_effect = ServiceUnavailableError("upstream failed")
+        news_http.request_json.return_value = {}  # An invalid response differs from a valid empty list.
+    forecast = ForecastClient(forecast_http, "test")
+    news = NewsClient(news_http)
+    spans: dict[str, dict] = {}
+    stack: list[str] = []
+
+    @contextmanager
+    def record(name: str) -> Iterator[dict]:
+        assert stack == ([] if name == "cfo.business_context" else ["cfo.business_context"])
+        stack.append(name)
+        spans[name] = {}
+        yield spans[name]
+        stack.pop()
+
+    monkeypatch.setattr("app.agents.chat.context.trace_span", record)
+    status = "ok" if available else "error"
+    for cached in (False, True):
+        build_business_snapshot(forecast, news, repository)
+        assert spans["forecast.fetch"]["cache_hit"] is cached
+        assert spans["forecast.fetch"]["horizon_days"] == 90
+        assert spans["forecast.fetch"]["status"] == status
+        assert spans["cfo.business_context"]["forecast_status"] == status
+        assert spans["cfo.business_context"]["news_status"] == status
+        if available:
+            assert spans["news.fetch"] == {"status": "ok", "article_count": 0}
+            assert spans["cfo.business_context"]["article_count"] == 0
+        else:
+            assert spans["news.fetch"] == {"status": "error", "error_type": "ServiceUnavailableError"}
+            assert "article_count" not in spans["cfo.business_context"]
+    assert forecast_http.request_json.call_count == 1

@@ -2,7 +2,7 @@ import datetime
 import time
 from functools import lru_cache
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.config import get_settings
 from app.service_client import ServiceClient, ServiceUnavailableError
@@ -88,11 +88,12 @@ class ForecastClient:
         """
         return self._service_client.configured
 
-    def fetch_forecast(self, horizon_days: int = 90) -> Forecast:
+    def fetch_forecast(self, horizon_days: int = 90, *, trace_attributes: dict | None = None) -> Forecast:
         """Forecast the account balance for the next days.
 
         Args:
             horizon_days: Number of days to forecast (7–365).
+            trace_attributes: Optional per-request metadata for the caller's forecast span.
 
         Returns:
             The forecast with daily bands and the safe-to-lock amounts for 30/60/90 days.
@@ -103,6 +104,8 @@ class ForecastClient:
                down does not slow down every page by the connection timeout.
             2. Otherwise ask the forecast service and remember the forecast or the failure.
         """
+        if trace_attributes is not None:
+            trace_attributes.update(horizon_days=horizon_days, cache_hit=False)
         cached = self._cache.get(horizon_days)
         if cached is not None:
             stored_at, result = cached
@@ -112,6 +115,8 @@ class ForecastClient:
                 else FORECAST_CACHE_SECONDS
             )
             if time.monotonic() - stored_at < max_age:
+                if trace_attributes is not None:
+                    trace_attributes["cache_hit"] = True
                 if isinstance(result, ServiceUnavailableError):
                     raise result
                 return result
@@ -126,7 +131,10 @@ class ForecastClient:
         except ServiceUnavailableError as error:
             self._cache[horizon_days] = (time.monotonic(), error)
             raise
-        forecast = Forecast.model_validate(payload)
+        try:
+            forecast = Forecast.model_validate(payload)
+        except ValidationError as error:
+            raise ServiceUnavailableError("The forecast service returned an invalid forecast.") from error
         self._cache[horizon_days] = (time.monotonic(), forecast)
         return forecast
 

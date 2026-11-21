@@ -10,6 +10,7 @@ from app.agents.news.client import NewsClient, get_news_client
 from app.forecasting.client import Forecast, ForecastClient, get_forecast_client
 from app.service_client import ServiceUnavailableError
 from app.storage.decisions import DecisionRepository, get_decision_repository
+from app.tracing import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -68,35 +69,50 @@ def build_business_snapshot(
         3. Add the headlines of relevant business news.
         Each source is optional: if a service is down, its section is left out.
     """
-    lines: list[str] = []
-    if forecast_client.configured:
-        try:
-            lines.extend(_forecast_lines(forecast_client.fetch_forecast()))
-        except ServiceUnavailableError:
-            lines.append("The balance forecast is not available right now.")
+    with trace_span("cfo.business_context") as summary:
+        lines: list[str] = []
+        with trace_span("forecast.fetch") as forecast:
+            forecast["status"] = "unconfigured"
+            if forecast_client.configured:
+                try:
+                    result = forecast_client.fetch_forecast(trace_attributes=forecast)
+                    lines.extend(_forecast_lines(result))
+                    forecast["status"] = "ok"
+                except ServiceUnavailableError as error:
+                    forecast.update(status="error", error_type=type(error).__name__)
+                    lines.append("The balance forecast is not available right now.")
+        summary["forecast_status"] = forecast["status"]
 
-    transactions = repository.list_transactions()[:MAX_TRANSACTIONS]
-    if transactions:
-        lines.append(
-            "Already approved (simulated, no real money moved): "
-            + "; ".join(
-                f"{transaction.description} on {transaction.created_at[:10]}" for transaction in transactions
+        transactions = repository.list_transactions()[:MAX_TRANSACTIONS]
+        if transactions:
+            lines.append(
+                "Already approved (simulated, no real money moved): "
+                + "; ".join(
+                    f"{transaction.description} on {transaction.created_at[:10]}"
+                    for transaction in transactions
+                )
+                + "."
             )
-            + "."
-        )
 
-    if news_client.configured:
-        try:
-            articles = news_client.fetch_relevant_articles(MAX_NEWS_ITEMS)
-        except ServiceUnavailableError:
-            articles = []
-        if articles:
-            lines.append("Relevant business news:")
-            lines.extend(
-                f"- {article.title} ({article.source})" + (f": {article.reason}" if article.reason else "")
-                for article in articles
-            )
-    return "\n".join(lines)
+        with trace_span("news.fetch") as news:
+            news["status"] = "unconfigured"
+            if news_client.configured:
+                try:
+                    articles = news_client.fetch_relevant_articles(MAX_NEWS_ITEMS)
+                except ServiceUnavailableError as error:
+                    news.update(status="error", error_type=type(error).__name__)
+                else:
+                    news.update(status="ok", article_count=len(articles))
+                    summary["article_count"] = len(articles)
+                    if articles:
+                        lines.append("Relevant business news:")
+                        lines.extend(
+                            f"- {article.title} ({article.source})"
+                            + (f": {article.reason}" if article.reason else "")
+                            for article in articles
+                        )
+        summary["news_status"] = news["status"]
+        return "\n".join(lines)
 
 
 def get_business_snapshot(
