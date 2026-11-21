@@ -79,7 +79,7 @@
               <p class="minor">Checked: no change to your expected cash flow.</p>
             {/if}
             <div class="actions">
-              <a href="/">See the forecast</a>
+              <a href="/overview">See the forecast</a>
               <button disabled={working !== ''} onclick={() => removeImpact(article)}>Remove from forecast</button>
             </div>
           {:else}

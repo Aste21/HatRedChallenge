@@ -3,7 +3,10 @@
 declare global {
 	namespace App {
 		// interface Error {}
-		// interface Locals {}
+		interface Locals {
+			/** The signed-in business, set by `hooks.server.ts`; null when signed out. */
+			account: import('#lib/server/accounts.ts').PublicAccount | null;
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

@@ -10,11 +10,12 @@
   import WeekdayChart from '#lib/charts/WeekdayChart.svelte';
   import CalendarHeatmap from '#lib/charts/CalendarHeatmap.svelte';
   import OutflowChart from '#lib/charts/OutflowChart.svelte';
-  import { months, december, closing, bills, lowest, scenario, spending, weekdayTakings, dateLabel, money } from '#lib/ledger.ts';
+  import { dateLabel, money, useLedger } from '#lib/ledger.ts';
   import { providePageDetails } from '#lib/chat/page-context.ts';
-  import { layout, widgets } from '#lib/dashboard.svelte.ts';
+  import { layout, spanLabels, spanNames, widgets, type Span } from '#lib/dashboard.svelte.ts';
   import { describeEvent, euro, eventStart, percent, upcomingPayments, worstDay, type ChartMarker, type Forecast } from '#lib/forecast.ts';
   import type { PageProps } from './$types';
+  const { months, december, closing, bills, lowest, scenario, spending, weekdayTakings } = useLedger();
 
   let { data }: PageProps = $props();
   let allMonths = $state(false);
@@ -23,12 +24,14 @@
   let withAssumptions = $state(false);
   let customizing = $state(false);
   let dragging = $state<string | null>(null);
+  let resizing = $state<string | null>(null);
+  let grid = $state<HTMLElement>();
   let announcement = $state('');
   const newest = [...months].reverse();
   const titles = Object.fromEntries(widgets.map((widget) => [widget.id, widget.title]));
-  const sizes = Object.fromEntries(widgets.map((widget) => [widget.id, widget.size]));
 
-  onMount(() => layout.restore());
+  // svelte-ignore state_referenced_locally
+  onMount(() => layout.restore(data.account.id));
 
   // The forecast streams in after the page is shown; until then the chart uses the illustrative scenario.
   $effect(() => {
@@ -53,6 +56,33 @@
   function move(id: string, direction: -1 | 1) {
     layout.move(id, direction);
     announcement = `${titles[id]} moved to position ${layout.visible.indexOf(id) + 1} of ${layout.visible.length}.`;
+  }
+  function setSpan(id: string, span: Span) {
+    layout.resize(id, span);
+    announcement = `${titles[id]} is now ${spanNames[layout.spans[id]]}.`;
+  }
+  /** Drag the right edge of a card: its width snaps to a third, a half, two thirds or full width. */
+  function startResize(event: PointerEvent, id: string) {
+    if (!grid) return;
+    event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    const card = handle.closest('.widget') as HTMLElement;
+    const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
+    const column = (grid.getBoundingClientRect().width + gap) / 12;
+    const left = card.getBoundingClientRect().left;
+    resizing = id;
+    handle.setPointerCapture(event.pointerId);
+    const follow = (moveEvent: PointerEvent) => layout.resize(id, Math.max(1, Math.round((moveEvent.clientX - left + gap) / column)));
+    const stop = () => {
+      handle.removeEventListener('pointermove', follow);
+      handle.removeEventListener('pointerup', stop);
+      handle.removeEventListener('pointercancel', stop);
+      resizing = null;
+      announcement = `${titles[id]} is now ${spanNames[layout.spans[id]]}.`;
+    };
+    handle.addEventListener('pointermove', follow);
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
   }
   function hide(id: string) {
     layout.toggle(id);
@@ -110,7 +140,7 @@
 {#if customizing}
   <section class="panel customize enter" aria-labelledby="customize-title">
     <div class="panel-head"><h2 id="customize-title">Customize your overview</h2><button class="textbtn" onclick={() => layout.reset()}>Reset to default</button></div>
-    <p class="note">Choose what you want to see. Drag a card to move it, or use its arrow buttons. Your layout is saved in this browser.</p>
+    <p class="note">Choose what you want to see. Drag a card by its title bar to move it, or use its arrow buttons. Make a card wider or narrower with its size buttons or by dragging its right edge, so the cards fill each row. Your layout is saved in this browser.</p>
     <ul class="widget-choices">
       {#each layout.order as id (id)}
         <li><label><input type="checkbox" checked={!layout.hidden.includes(id)} onchange={() => layout.toggle(id)} /> {titles[id]}</label></li>
@@ -120,21 +150,30 @@
 {/if}
 <p class="sr-only" role="status">{announcement}</p>
 
-<div class="dashboard" class:customizing>
+<div class="dashboard" class:customizing class:resizing={resizing !== null} bind:this={grid}>
   {#each layout.visible as id, position (id)}
-    <div class="widget size-{sizes[id]} enter" class:dragging={dragging === id} style:--i={position}
+    <div class="widget enter" class:dragging={dragging === id} style:--i={position} style:--span={layout.spans[id]}
       animate:flip={{ duration: prefersReducedMotion.current ? 0 : 240 }}
-      draggable={customizing} role={customizing ? 'group' : undefined} aria-label={customizing ? titles[id] : undefined}
-      ondragstart={(event) => { dragging = id; event.dataTransfer?.setData('text/plain', id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'; }}
-      ondragover={(event) => dragOver(event, id)} ondrop={(event) => event.preventDefault()}
-      ondragend={() => { if (dragging) announcement = `${titles[dragging]} moved to position ${layout.visible.indexOf(dragging) + 1}.`; dragging = null; }}>
+      role={customizing ? 'group' : undefined} aria-label={customizing ? titles[id] : undefined}
+      ondragover={(event) => dragOver(event, id)} ondrop={(event) => event.preventDefault()}>
       {#if customizing}
-        <div class="widget-tools">
+        <!-- Cards move by their title bar, so the resize handle and the charts keep their own pointer gestures. -->
+        <div class="widget-tools" draggable="true" role="toolbar" tabindex="-1" aria-label="Arrange {titles[id]}"
+          ondragstart={(event) => { dragging = id; event.dataTransfer?.setData('text/plain', id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'; }}
+          ondragend={() => { if (dragging) announcement = `${titles[dragging]} moved to position ${layout.visible.indexOf(dragging) + 1}.`; dragging = null; }}>
           <span class="drag-handle" aria-hidden="true">⠿</span><b>{titles[id]}</b>
           <button disabled={position === 0} onclick={() => move(id, -1)} aria-label="Move {titles[id]} up">↑</button>
           <button disabled={position === layout.visible.length - 1} onclick={() => move(id, 1)} aria-label="Move {titles[id]} down">↓</button>
+          <span class="size-buttons" role="group" aria-label="Width of {titles[id]}">
+            {#each layout.spansFor(id) as span (span)}
+              <button aria-pressed={layout.spans[id] === span} onclick={() => setSpan(id, span)} aria-label="{spanNames[span]}">{spanLabels[span]}</button>
+            {/each}
+          </span>
           <button onclick={() => hide(id)}>Hide</button>
         </div>
+        <!-- Pointer-only shortcut for the size buttons above, which also work with the keyboard. -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span class="resize-handle" aria-hidden="true" draggable="false" title="Drag to resize" onpointerdown={(event) => startResize(event, id)}></span>
       {/if}
 
       {#if id === 'summary'}
@@ -199,8 +238,11 @@
           <section class="panel outlook"><h2>Next 90 days</h2><p class="note">The forecast is not available right now. Try refreshing in a moment.</p></section>
         {/if}
 
-      {:else if id === 'balance'}
-        <BalanceChart forecast={active?.daily ?? null} compare={other?.daily ?? null}
+      {:else if id === 'liquidity'}
+        <BalanceChart mode="history" />
+
+      {:else if id === 'forecast'}
+        <BalanceChart mode="forecast" forecast={active?.daily ?? null} compare={other?.daily ?? null}
           activeLabel={showingEstimates ? 'Including estimates' : 'Confirmed changes'}
           compareLabel={showingEstimates ? 'Confirmed changes' : 'Including estimates'}
           buffer={active?.buffer.amount ?? null} {markers} />

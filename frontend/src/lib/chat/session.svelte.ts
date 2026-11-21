@@ -4,7 +4,8 @@ export type ChatMessage = { id: number; role: 'user' | 'assistant'; content: str
 export type ConversationSummary = { id: string; title: string; created_at: string; updated_at: string };
 type StoredConversation = ConversationSummary & { messages: { role: 'user' | 'assistant'; content: string }[] };
 
-const activeConversationKey = 'amalfi.chat.active';
+// One key per account, so a shared browser never reopens another business's conversation.
+let activeConversationKey = 'chat.active';
 
 async function errorMessage(response: Response, fallback: string): Promise<string> {
   const payload = await response.json().catch(() => ({}));
@@ -40,10 +41,11 @@ class ChatSession {
   #loadToken = 0;
   #restored = false;
 
-  /** Reopens the conversation that was active before a page reload. */
-  restore() {
+  /** Reopens the account's conversation that was active before a page reload. */
+  restore(accountId: string) {
     if (this.#restored) return;
     this.#restored = true;
+    activeConversationKey = `chat.active.${accountId}`;
     let id: string | null = null;
     try { id = sessionStorage.getItem(activeConversationKey); } catch { /* ignore */ }
     if (id) this.open(id);

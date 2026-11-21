@@ -1,18 +1,19 @@
 <script lang="ts">
-  import { history, lowest, money } from '../ledger';
+  import { money, useLedger } from '../ledger';
   import { weekdayDate } from './scale';
+  const { history, lowest } = useLedger();
 
   let width = $state(0);
   let selected = $state(history.indexOf(lowest));
 
   // Six balance bands around €0, the meaningful midpoint (overdraft vs. money in the account).
   const bands = [
-    { below: -1500000, color: '#a8382f', label: 'below −€15k' },
-    { below: -500000, color: '#d9877d', label: '−€15k to −€5k' },
-    { below: 0, color: '#f2cbc5', label: '−€5k to €0' },
-    { below: 1000000, color: '#cfe8e1', label: '€0 to €10k' },
-    { below: 2000000, color: '#7fbfae', label: '€10k to €20k' },
-    { below: Infinity, color: '#2f7f6d', label: 'above €20k' }
+    { below: -1500000, color: 'var(--heat-1)', label: 'below −€15k' },
+    { below: -500000, color: 'var(--heat-2)', label: '−€15k to −€5k' },
+    { below: 0, color: 'var(--heat-3)', label: '−€5k to €0' },
+    { below: 1000000, color: 'var(--heat-4)', label: '€0 to €10k' },
+    { below: 2000000, color: 'var(--heat-5)', label: '€10k to €20k' },
+    { below: Infinity, color: 'var(--heat-6)', label: 'above €20k' }
   ];
   const colorOf = (cents: number) => bands.find((band) => cents < band.below)!.color;
 
@@ -44,7 +45,7 @@
         {/each}
         {#each cells as cell_, index (cell_.date)}
           <rect x={labelWidth + cell_.column * cell} y={20 + cell_.row * cell} width={cell - 2} height={cell - 2} rx="2"
-            fill={colorOf(cell_.balance)} stroke={index === selected ? '#202f32' : 'none'} stroke-width="2"
+            style:fill={colorOf(cell_.balance)} style:stroke={index === selected ? 'var(--fg)' : 'none'} stroke-width="2"
             onpointerenter={() => selected = index} role="presentation"/>
         {/each}
       </svg>

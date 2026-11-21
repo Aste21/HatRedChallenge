@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { months, money } from '../ledger';
+  import { money, useLedger } from '../ledger';
   import { euroCompact, linear, niceTicks } from './scale';
+  const { months } = useLedger();
 
   let width = $state(0);
   let selected = $state<number | null>(null);
@@ -26,7 +27,7 @@
 <figure class="chart-figure">
   <h2>Money in and out per month</h2>
   <p class="chart-desc">Your weakest month was {worst.name}: {money(worst.net)} net, because receipts stopped while fixed costs continued.</p>
-  <p class="legend" aria-hidden="true"><span><i style:background="var(--chart-in)"></i>Money in</span><span><i style:background="var(--chart-out)"></i>Money out</span><span><i style:background="#202f32" style:border-radius="50%"></i>Net result</span></p>
+  <p class="legend" aria-hidden="true"><span><i style:background="var(--chart-in)"></i>Money in</span><span><i style:background="var(--chart-out)"></i>Money out</span><span><i style:background="var(--fg)" style:border-radius="50%"></i>Net result</span></p>
   <div class="chart-box" bind:clientWidth={width}>
     {#if width > 0}
       <svg {width} {height} role="img" aria-label="Bar chart of money in and money out for each month of 2025, with the net result. The table below lists all values."
@@ -37,9 +38,9 @@
         {/each}
         {#each rows as row, index (row.name)}
           <g class="enter" style:--i={index} opacity={selected === null || selected === index ? 1 : .45}>
-            <rect x={left(index) - bar - 1} y={y(row.income)} width={bar} height={Math.max(y(0) - y(row.income), 0)} rx="2" fill="var(--chart-in)"/>
-            <rect x={left(index) + 1} y={y(row.costs)} width={bar} height={Math.max(y(0) - y(row.costs), 0)} rx="2" fill="var(--chart-out)"/>
-            <circle cx={left(index)} cy={y(row.net)} r="4" fill="#202f32" stroke="white" stroke-width="1.5"/>
+            <rect x={left(index) - bar - 1} y={y(row.income)} width={bar} height={Math.max(y(0) - y(row.income), 0)} rx="2" style:fill="var(--chart-in)"/>
+            <rect x={left(index) + 1} y={y(row.costs)} width={bar} height={Math.max(y(0) - y(row.costs), 0)} rx="2" style:fill="var(--chart-out)"/>
+            <circle cx={left(index)} cy={y(row.net)} r="4" style:fill="var(--fg)" style:stroke="var(--surface)" stroke-width="1.5"/>
             <text x={left(index)} y={height - 6} text-anchor="middle">{width < 500 ? row.name.slice(0, 1) : row.name.slice(0, 3)}</text>
           </g>
         {/each}

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { money, spending } from '../ledger';
+  import { money, useLedger } from '../ledger';
+  const { spending } = useLedger();
 
   const total = spending.reduce((sum, row) => sum + row.cents, 0);
   const largest = spending[0];

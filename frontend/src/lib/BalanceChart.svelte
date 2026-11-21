@@ -1,13 +1,15 @@
 <script lang="ts">
   import { Tween, prefersReducedMotion } from 'svelte/motion';
   import { cubicOut } from 'svelte/easing';
-  import { history, scenario, dateLabel, money } from './ledger';
+  import { dateLabel, money, useLedger } from './ledger';
   import { euroCompact, linear, niceTicks } from './charts/scale';
   import type { ChartMarker, ForecastDay } from './forecast';
+  const { history, scenario } = useLedger();
 
   type Row = { date: string; balance: number; low?: number; high?: number; compare?: number };
 
   let {
+    mode = 'history',
     forecast = null,
     compare = null,
     activeLabel = 'Expected balance',
@@ -15,6 +17,8 @@
     buffer = null,
     markers = []
   }: {
+    /** `history`: the liquidity tile (Year/Quarter); `forecast`: the forecast tile (next 30/60/90 days). */
+    mode?: 'history' | 'forecast';
     forecast?: ForecastDay[] | null;
     compare?: ForecastDay[] | null;
     activeLabel?: string;
@@ -24,7 +28,8 @@
   } = $props();
 
   const toCents = (euros: number) => Math.round(euros * 100);
-  let range = $state('Year');
+  // svelte-ignore state_referenced_locally
+  let range = $state(mode === 'forecast' ? 'Forecast' : 'Year');
   let horizonChoice = $state(2);
   let position = $state<number | null>(null);
   let tooltip = $state(false);
@@ -96,13 +101,15 @@
 </script>
 
 <section class="panel chart">
-  <div class="panel-head"><h2>Balance over time</h2>
-    <div class="switches" aria-label="Chart range">{#each ['Year','Quarter','Forecast'] as option (option)}
-      <button aria-pressed={range === option} onclick={() => setRange(option)}>{option}</button>
-    {/each}</div>
+  <div class="panel-head"><h2>{mode === 'forecast' ? 'Forecast' : 'Liquidity'}</h2>
+    {#if mode === 'history'}
+      <div class="switches" aria-label="Chart range">{#each ['Year','Quarter'] as option (option)}
+        <button aria-pressed={range === option} onclick={() => setRange(option)}>{option}</button>
+      {/each}</div>
+    {/if}
   </div>
   {#if range === 'Forecast'}
-    <label class="horizon">Forecast horizon
+    <label class="horizon">Show the next
       <select bind:value={horizonChoice} onchange={() => position = null}>
         {#each horizons as days, choice (days)}<option value={choice}>{days} days</option>{/each}
       </select>
@@ -120,7 +127,7 @@
     {#if width > 0}
       <svg {width} {height} role="img" aria-label={`${range} balance chart in euros. Latest value ${dateLabel(rows[rows.length - 1].date)}: ${money(rows[rows.length - 1].balance)}.`}
         onpointermove={inspect} onpointerdown={inspect} onpointerleave={() => tooltip = false}>
-        <defs><linearGradient id="balance-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#168577" stop-opacity=".19"/><stop offset="1" stop-color="#168577" stop-opacity=".015"/></linearGradient></defs>
+        <defs><linearGradient id="balance-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style:stop-color="var(--chart-line)" stop-opacity=".19"/><stop offset="1" style:stop-color="var(--chart-line)" stop-opacity=".015"/></linearGradient></defs>
         {#each ticks as tick (tick)}
           <line class={tick === 0 ? 'zero' : 'grid'} x1={margin.left} x2={width - margin.right} y1={y(tick * 100)} y2={y(tick * 100)}/>
           <text x={margin.left - 8} y={y(tick * 100) + 4} text-anchor="end">{euroCompact(tick)}</text>
@@ -128,29 +135,29 @@
         {#key viewKey}
           <g class="chart-reveal">
             {#if showBand}
-              <path d={band} fill="#168577" fill-opacity=".16"/>
+              <path d={band} style:fill="var(--chart-line)" fill-opacity=".16"/>
             {:else}
               <path d={path + ` L${x(rows.length - 1)},${height - margin.bottom} L${margin.left},${height - margin.bottom} Z`} fill="url(#balance-fill)"/>
             {/if}
-            {#if showCompare}<path d={comparePath} fill="none" stroke="var(--chart-out)" stroke-width="2" stroke-dasharray="4 4"/>{/if}
-            <path d={path} fill="none" stroke="#117765" stroke-width="2.6" stroke-linejoin="round" stroke-dasharray={range === 'Forecast' ? '6 3' : undefined}/>
+            {#if showCompare}<path d={comparePath} fill="none" style:stroke="var(--chart-out)" stroke-width="2" stroke-dasharray="4 4"/>{/if}
+            <path d={path} fill="none" style:stroke="var(--chart-line)" stroke-width="2.6" stroke-linejoin="round" stroke-dasharray={range === 'Forecast' ? '6 3' : undefined}/>
           </g>
         {/key}
         {#if bufferCents !== null}
-          <line x1={margin.left} x2={width - margin.right} y1={y(bufferCents)} y2={y(bufferCents)} stroke="var(--chart-buffer)" stroke-width="1.6" stroke-dasharray="8 4"/>
+          <line x1={margin.left} x2={width - margin.right} y1={y(bufferCents)} y2={y(bufferCents)} style:stroke="var(--chart-buffer)" stroke-width="1.6" stroke-dasharray="8 4"/>
           <text class="buffer-label" x={width - margin.right} y={y(bufferCents) - 6} text-anchor="end">Cash buffer {money(bufferCents)}</text>
         {/if}
         {#each visibleMarkers as marker (marker.index)}
           {@const badge = 8 + (marker.numbers.length - 1) * 3.4}
-          <line x1={x(marker.index)} x2={x(marker.index)} y1={margin.top} y2={height - margin.bottom} stroke="#7a4a12" stroke-dasharray="2 3"/>
-          <rect x={x(marker.index) - badge} y={margin.top - 16} width={badge * 2} height="16" rx="8" fill="#fbf3e6" stroke="#7a4a12"/>
+          <line x1={x(marker.index)} x2={x(marker.index)} y1={margin.top} y2={height - margin.bottom} style:stroke="var(--warn-fg)" stroke-dasharray="2 3"/>
+          <rect x={x(marker.index) - badge} y={margin.top - 16} width={badge * 2} height="16" rx="8" style:fill="var(--warn-soft)" style:stroke="var(--warn-fg)"/>
           <text class="strong" x={x(marker.index)} y={margin.top - 4} text-anchor="middle"><title>{marker.label}</title>{marker.numbers}</text>
         {/each}
         {#if worstIndex > 0}
-          <circle cx={x(worstIndex)} cy={y(at(worstIndex, 1))} r="5" fill="var(--chart-risk)" stroke="white" stroke-width="2"/>
+          <circle cx={x(worstIndex)} cy={y(at(worstIndex, 1))} r="5" style:fill="var(--chart-risk)" style:stroke="var(--surface)" stroke-width="2"/>
         {/if}
-        <line x1={x(index)} x2={x(index)} y1={y(at(index, 0))} y2={height - margin.bottom} stroke="#356b5d" stroke-dasharray="2 3"/>
-        <circle cx={x(index)} cy={y(at(index, 0))} r="4.5" fill="#075e50" stroke="white" stroke-width="2"/>
+        <line x1={x(index)} x2={x(index)} y1={y(at(index, 0))} y2={height - margin.bottom} style:stroke="var(--subtle)" stroke-dasharray="2 3"/>
+        <circle cx={x(index)} cy={y(at(index, 0))} r="4.5" style:fill="var(--chart-line)" style:stroke="var(--surface)" stroke-width="2"/>
         {#each [0, .25, .5, .75, 1] as fraction (fraction)}
           {@const n = Math.round(fraction * (rows.length - 1))}
           <text x={x(n)} y={height - 6} text-anchor={fraction === 1 ? 'end' : fraction === 0 ? 'start' : 'middle'}>{dateFormat(rows[n].date)}</text>

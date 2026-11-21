@@ -7,7 +7,7 @@
 
   type Suggestion = { title: string; detail: string };
   const pages: Record<string, { name: string; suggestions: Suggestion[] }> = {
-    '/': { name: 'Overview', suggestions: [
+    '/overview': { name: 'Overview', suggestions: [
       { title: 'Explain this page', detail: 'in simple words' },
       { title: 'Which month was', detail: 'the weakest for my cash?' }
     ] },

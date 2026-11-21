@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { money, weekdayTakings } from '../ledger';
+  import { money, useLedger } from '../ledger';
   import { euroWhole, linear, niceTicks } from './scale';
+  const { weekdayTakings } = useLedger();
 
   let width = $state(0);
 
@@ -30,7 +31,7 @@
           {@const center = margin.left + index * slot + slot / 2}
           <g class="enter" style:--i={index}>
             <rect x={center - barWidth / 2} y={y(row.average)} width={barWidth} height={Math.max(y(0) - y(row.average), 0)} rx="3"
-              fill={index >= 4 ? 'var(--chart-in)' : '#9cc7bc'}/>
+              style:fill={index >= 4 ? 'var(--chart-in)' : 'var(--chart-in-soft)'}/>
             <text x={center} y={y(row.average) - 6} text-anchor="middle" class:strong={index >= 4}>{euroWhole(row.average / 100)}</text>
             <text x={center} y={height - 6} text-anchor="middle">{width < 420 ? row.name.slice(0, 2) : row.name.slice(0, 3)}</text>
           </g>

@@ -32,8 +32,8 @@
   <div class="chart-box" bind:clientWidth={width}>
     {#if width > 0 && steps.length}
       <svg {width} {height} role="img" aria-label={`Running total of scheduled payments over the next ${days} days, reaching ${euro(total)}.`}>
-        <path class="chart-reveal" d={path + ` L${x(days)},${y(0)} Z`} fill="var(--chart-out)" fill-opacity=".14"/>
-        <path class="chart-reveal" d={path} fill="none" stroke="var(--chart-out)" stroke-width="2"/>
+        <path class="chart-reveal" d={path + ` L${x(days)},${y(0)} Z`} style:fill="var(--chart-out)" fill-opacity=".14"/>
+        <path class="chart-reveal" d={path} fill="none" style:stroke="var(--chart-out)" stroke-width="2"/>
         <text x={margin.left} y={height - 4}>{shortDay(dateAt(1))}</text>
         <text x={width - margin.right} y={height - 4} text-anchor="end">{shortDay(dateAt(days))}</text>
       </svg>

@@ -70,7 +70,7 @@ for day in range(1, 32):
     remaining -= sum(cents for payment_day, _, cents in schedule if day == payment_day)
     scenario.append(dict(date=date(2026, 1, day).isoformat(), balance=remaining))
 
-output = frontend / "src/lib/statement.json"
+output = frontend / "src/lib/server/statements/amalfi.json"
 weekdays = [nearest_cent(sum(debit_takings[weekday]) / len(debit_takings[weekday])) if debit_takings[weekday] else 0
             for weekday in range(7)]
 spending_rows = sorted(([name, nearest_cent(cents)] for name, cents in spending.items()), key=lambda row: -row[1])
