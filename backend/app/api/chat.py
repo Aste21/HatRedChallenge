@@ -6,6 +6,7 @@ from openai import OpenAIError
 from pydantic import BaseModel, Field
 
 from app.agents.chat.agent import ChatMessage, PageContext, answer, generate_title
+from app.agents.chat.context import get_business_snapshot
 from app.llm import LlmClient, get_llm_client
 from app.storage.conversations import (
     ConversationRepository,
@@ -39,6 +40,7 @@ def post_chat(
     request: ChatRequest,
     llm_client: Annotated[LlmClient, Depends(get_llm_client)],
     repository: Annotated[ConversationRepository, Depends(get_conversation_repository)],
+    business_snapshot: Annotated[str, Depends(get_business_snapshot)],
 ) -> ChatResponse:
     """Answer a user message and store the exchange in the chat history.
 
@@ -46,6 +48,7 @@ def post_chat(
         request: The new message, the optional conversation it belongs to and the visible page content.
         llm_client: Injected LLM client.
         repository: Injected chat history store.
+        business_snapshot: Latest forecast, approved actions and news, for answers with real numbers.
 
     Returns:
         The assistant reply with the conversation id and title.
@@ -72,7 +75,7 @@ def post_chat(
     history.append(ChatMessage(role="user", content=question))
 
     try:
-        reply = answer(llm_client, history, request.page_context)
+        reply = answer(llm_client, history, request.page_context, business_snapshot)
     except OpenAIError as error:
         logger.exception("LLM call failed")
         raise HTTPException(

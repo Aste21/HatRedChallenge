@@ -60,6 +60,7 @@ p, dd { line-height: 1.55; }
 .chart-key { display: flex; align-items: center; gap: .5rem; color: var(--subtle); font-size: .9rem; margin: 1rem 0 .25rem; }
 .chart-key i { width: 1.2rem; border-top: 3px solid var(--accent); }
 .chart-key .scenario { border-top-style: dashed; }
+.chart-key .band { height: .7rem; border-top: none; background: rgb(22 133 119 / .2); margin-left: .75rem; }
 .chart-key span { margin-left: auto; }
 .plot svg { width: 100%; display: block; }
 .plot text { fill: var(--subtle); font: 12px Arial, sans-serif; }
@@ -89,6 +90,8 @@ dt { border-top: 1px solid var(--line); padding-top: .6rem; font-weight: 600; }
 dd { margin: .25rem 0 .7rem; color: var(--subtle); }
 .actions, .confirm, .decision { margin-top: auto; }
 .confirm p { margin-bottom: .55rem; }
+.draft { white-space: pre-line; }
+details.panel summary { cursor: pointer; font-weight: 600; }
 .news-item { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .news-item h3, .news-item p { margin-top: .4rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

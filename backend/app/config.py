@@ -16,7 +16,19 @@ class Settings(BaseSettings):
         llm_ca_bundle: Path to a CA bundle that signs the cluster-internal certificate.
         llm_verify_tls: Set to false only in local dev when no CA bundle is available.
         llm_timeout_seconds: Request timeout for a single LLM call.
-        database_path: SQLite file for chat history (mount a PVC at its directory in-cluster).
+        database_path: SQLite file for chat history, decisions and the notification outbox
+            (mount a PVC at its directory in-cluster).
+        account_id: Account id of the business in the forecast service.
+        forecast_api_url: Base URL of the forecast service (`account-prediction/`). Empty = not connected.
+        instrument_api_url: Base URL of the instrument recommendation agent. Empty = not connected.
+        news_api_url: Base URL of the news service (`news/`). Empty = not connected.
+        service_timeout_seconds: Timeout for calls to the forecast and news services.
+        instrument_timeout_seconds: Timeout for the instrument agent, which calls the LLM itself.
+        owner_email: Recipient of notifications (approval confirmations).
+        smtp_host: SMTP server; when empty, notifications stay in the in-app outbox only.
+        smtp_port: SMTP port (STARTTLS).
+        smtp_user: SMTP login, also used as the sender address.
+        smtp_password: SMTP password.
     """
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -28,6 +40,17 @@ class Settings(BaseSettings):
     llm_verify_tls: bool = True
     llm_timeout_seconds: float = 60.0
     database_path: Path = DEFAULT_DATABASE_PATH
+    account_id: str = "amalfi"
+    forecast_api_url: str = ""
+    instrument_api_url: str = ""
+    news_api_url: str = ""
+    service_timeout_seconds: float = 10.0
+    instrument_timeout_seconds: float = 120.0
+    owner_email: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
 
 
 @lru_cache

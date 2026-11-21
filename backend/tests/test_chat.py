@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from openai import APIConnectionError
 
 from app.agents.chat.agent import TITLE_PROMPT, _clean_title
+from app.agents.chat.context import get_business_snapshot
 from app.llm import get_llm_client
 from app.main import app
 from app.storage.conversations import ConversationRepository, get_conversation_repository
@@ -44,6 +45,7 @@ def client(tmp_path: Path, fake_llm_client: FakeLlmClient) -> Iterator[TestClien
     repository = ConversationRepository(tmp_path / "chat.sqlite3")
     app.dependency_overrides[get_llm_client] = lambda: fake_llm_client
     app.dependency_overrides[get_conversation_repository] = lambda: repository
+    app.dependency_overrides[get_business_snapshot] = lambda: ""
     try:
         yield TestClient(app)
     finally:
