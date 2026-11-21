@@ -3,15 +3,23 @@
   import BalanceChart from '#lib/BalanceChart.svelte';
   import { months, december, closing, bills, lowest, scenario, dateLabel, money } from '#lib/ledger.ts';
   import { providePageDetails } from '#lib/chat/page-context.ts';
-  import { euro } from '#lib/forecast.ts';
+  import { euro, type Forecast } from '#lib/forecast.ts';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
   let allMonths = $state(false);
+  let forecast = $state<Forecast | null>(null);
   const newest = [...months].reverse();
 
+  // The forecast streams in after the page is shown; until then the chart uses the illustrative scenario.
+  $effect(() => {
+    let current = true;
+    data.forecast.then((loaded) => { if (current) forecast = loaded; });
+    return () => { current = false; };
+  });
+
   function forecastDetails(): string[] {
-    const daily = data.forecast?.official.daily;
+    const daily = forecast?.official.daily;
     if (!daily) {
       return [
         'Chart "Forecast" tab, illustrative January 2026 scenario with scheduled bills only and no receipts:',
@@ -46,7 +54,7 @@
 </div>
 
 <div class="overview">
-  <BalanceChart forecast={data.forecast?.official.daily ?? null} />
+  <BalanceChart forecast={forecast?.official.daily ?? null} />
   <section class="panel schedule">
     <div class="panel-head"><h2>Scheduled payments</h2><span class="minor">January 2026</span></div>
     <ul>
