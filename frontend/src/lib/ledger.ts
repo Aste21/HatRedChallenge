@@ -51,7 +51,9 @@ export function createLedger(statement: Statement) {
 
 export type Ledger = ReturnType<typeof createLedger>;
 
-const ledgerKey = Symbol('ledger');
+// A registered symbol: if the dev server ever loads this module twice (HMR after files change on disk,
+// or the same file under two path spellings on Windows), both copies still use the same context key.
+const ledgerKey = Symbol.for('cfocus.ledger');
 
 /** Makes the signed-in account's ledger available to every page and chart below the app layout. */
 export const provideLedger = (ledger: Ledger) => setContext(ledgerKey, ledger);
