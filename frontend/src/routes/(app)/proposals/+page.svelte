@@ -2,7 +2,6 @@
   import { invalidateAll } from '$app/navigation';
   import Heading from '#lib/Heading.svelte';
   import AnimatedNumber from '#lib/AnimatedNumber.svelte';
-  import AmountWaterfall from '#lib/charts/AmountWaterfall.svelte';
   import DepositComparison from '#lib/charts/DepositComparison.svelte';
   import { dateLabel } from '#lib/ledger.ts';
   import { euro, type Proposal, type ProposalStatus, type StoredNotification } from '#lib/forecast.ts';
@@ -135,7 +134,7 @@
               <div class="switches" role="group" aria-labelledby="terms-{card.key}">
                 {#each card.options as option (option.id)}
                   <button aria-pressed={option.id === proposal.id} onclick={() => choose(card, option)}>
-                    {option.term_days} days{#if option.is_recommended_term}<span> · suggested</span>{/if}
+                    {option.term_days} days{#if option.is_recommended_term}<span>&nbsp;· suggested</span>{/if}
                   </button>
                 {/each}
               </div>
@@ -149,7 +148,6 @@
               {#if proposal.min_amount !== null}<li><span>Offer range</span><b>{euro(proposal.min_amount)} – {euro(proposal.amount)}</b></li>{/if}
             </ul>
           {/if}
-          <AmountWaterfall {proposal} startBalance={board.start_balance} />
           <dl>
             <dt>What we see</dt><dd>{proposal.analysis}</dd>
             <dt>What we suggest</dt><dd>{proposal.recommendation}</dd>

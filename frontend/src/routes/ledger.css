@@ -599,15 +599,4 @@ button:active:not(:disabled), .button:active { transform: scale(.97); }
 .spending-value { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-size: .92rem; }
 @keyframes grow { from { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .spending-track span { animation: none; } }
-.waterfall { margin: .4rem 0 .9rem; padding: .8rem; border-radius: 8px; background: var(--surface-2); }
-.waterfall-row { display: grid; grid-template-columns: minmax(8.5rem, 38%) 1fr auto; gap: .6rem; align-items: center; margin-top: .45rem; font-size: .88rem; }
-.waterfall-row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.waterfall-track { position: relative; height: .9rem; }
-.waterfall-zero { position: absolute; top: -.2rem; bottom: -.2rem; border-left: 1px solid var(--chart-zero); }
-.waterfall-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; transform-origin: left; animation: grow var(--dur-large) var(--ease-out) both; animation-delay: calc(var(--i, 0) * 90ms); }
-.waterfall-bar.in { background: var(--chart-in); }
-.waterfall-bar.risk { background: var(--chart-risk); }
-.waterfall-bar.buffer { background: var(--chart-buffer); }
-.waterfall-bar.result { background: repeating-linear-gradient(135deg, var(--chart-in) 0 6px, var(--chart-in-soft) 6px 9px); outline: 2px solid var(--chart-in); outline-offset: 1px; }
-@media (prefers-reduced-motion: reduce) { .waterfall-bar { animation: none; } }
 .calendar { overflow-x: auto; padding-bottom: .2rem; }
