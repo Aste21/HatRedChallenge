@@ -10,6 +10,20 @@ from pathlib import Path
 frontend = Path(__file__).resolve().parents[1]
 source = frontend.parent / "data/raw/pizzeria-amalfi-bank-statement-2025-v6.csv"
 days = defaultdict(lambda: [0, 0])
+# Money out by category, decided by counterparty (DIRECT DEBIT alone covers taxes, energy and social security).
+categories = {
+    "Central Wholesale Market": "Fresh produce",
+    "Asimex Wholesale Ltd": "Food supplies",
+    "Fattoria La Vino GmbH": "Wine & drinks",
+    "Main Street Real Estate GmbH": "Rent",
+    "Techniker Krankenkasse Social Health Fund": "Social security",
+    "City Energy & Utilities AG": "Energy",
+    "Tax Office Frankfurt am Main": "Taxes",
+    "Luigi Amalfi (Luigi's Ristorante Zurich)": "Partner payout (CHF)",
+}
+spending = defaultdict(Decimal)
+# Debit-card takings are settled daily, so they show the weekday pattern (credit-card payouts come in batches).
+debit_takings = defaultdict(list)
 with source.open(encoding="utf-8-sig", newline="") as stream:
     for row in csv.DictReader(stream, delimiter=";"):
         day = datetime.strptime(row["Booking Date"], "%d.%m.%y").date()
@@ -22,6 +36,13 @@ with source.open(encoding="utf-8-sig", newline="") as stream:
         elif row["Currency"] != "EUR":
             raise ValueError("Unsupported currency")
         days[day][0 if amount > 0 else 1] += abs(amount) * 100
+        if row["Transaction Type"] == "CARD SETTLEMENT (DEBIT)":
+            debit_takings[day.weekday()].append(amount * 100)
+        if amount < 0:
+            category = "Staff salaries" if row["Transaction Type"] == "SALARY PAYMENT" else categories.get(row["Beneficiary/Payer"])
+            if category is None:
+                raise ValueError(f"No category for {row['Beneficiary/Payer']}")
+            spending[category] += -amount * 100
 
 def nearest_cent(value):
     return int(Decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
@@ -50,5 +71,8 @@ for day in range(1, 32):
     scenario.append(dict(date=date(2026, 1, day).isoformat(), balance=remaining))
 
 output = frontend / "src/lib/statement.json"
-output.write_text(json.dumps(dict(history=history, scenario=scenario, bills=schedule),
+weekdays = [nearest_cent(sum(debit_takings[weekday]) / len(debit_takings[weekday])) if debit_takings[weekday] else 0
+            for weekday in range(7)]
+spending_rows = sorted(([name, nearest_cent(cents)] for name, cents in spending.items()), key=lambda row: -row[1])
+output.write_text(json.dumps(dict(history=history, scenario=scenario, bills=schedule, spending=spending_rows, weekdays=weekdays),
                              separators=(",", ":")) + "\n", encoding="utf-8")
