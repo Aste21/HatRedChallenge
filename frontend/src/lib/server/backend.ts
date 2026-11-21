@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { CHAT_API_URL } from '$app/env/private';
 
 export const conversationIdPattern = /^[a-f0-9]{32}$/;
+export const articleIdPattern = /^[a-f0-9]{8,64}$/;
 
 /** Calls the Python backend; the browser never talks to it directly. Network failures become HTTP 502. */
 export async function backendFetch(

@@ -21,5 +21,9 @@ export const POST: RequestHandler = async ({ params, request, fetch }) => {
   if (response.status === 409) error(409, 'This proposal was already decided, or another option was chosen.');
   if (!response.ok) error(502, 'The decision could not be saved right now. Please try again.');
   const result = await response.json();
-  return json({ status: result.proposal?.status, notification_status: result.notification_status ?? null });
+  return json({
+    status: result.proposal?.status,
+    notification_status: result.notification_status ?? null,
+    transaction_id: result.transaction?.id ?? null
+  });
 };

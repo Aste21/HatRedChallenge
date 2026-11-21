@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { onNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import ChatWidget from '#lib/chat/ChatWidget.svelte';
   import { chat } from '#lib/chat/session.svelte.ts';
@@ -8,8 +9,19 @@
 
   let { children }: LayoutProps = $props();
   onMount(() => chat.restore());
+
+  // Crossfade between pages where the browser supports View Transitions; the CSS turns it off for reduced motion.
+  onNavigate((navigation) => {
+    if (!document.startViewTransition || navigation.from?.url.pathname === navigation.to?.url.pathname) return;
+    return new Promise((resolve) => {
+      document.startViewTransition(async () => {
+        resolve();
+        await navigation.complete;
+      });
+    });
+  });
   const links = [
-    { path: '/', label: 'Cashflow' },
+    { path: '/', label: 'Overview' },
     { path: '/proposals', label: 'Proposals' },
     { path: '/news', label: 'Business news' },
     { path: '/assistant', label: 'Chat' }

@@ -1,8 +1,9 @@
 import { NEWS_API_URL } from '$app/env/private';
+import { loadFromBackend } from '#lib/server/backend.ts';
+import type { Article, NewsImpact } from '#lib/forecast.ts';
 import type { PageServerLoad } from './$types';
 
-type Article = {title:string; summary:string; source:string; url:string; published:string | null; reason:string};
-export const load: PageServerLoad = async ({fetch}) => {
+async function loadArticles(fetch: typeof globalThis.fetch) {
   if (!NEWS_API_URL) return { feed: 'unconfigured', articles: [] as Article[] };
   try {
     const url = new URL('articles', NEWS_API_URL.replace(/\/?$/, '/'));
@@ -13,6 +14,14 @@ export const load: PageServerLoad = async ({fetch}) => {
     if (!Array.isArray(payload.articles)) throw new Error('Invalid article list');
     const articles: Article[] = payload.articles.filter((item: Article) =>
       item && typeof item.title === 'string' && typeof item.url === 'string' && /^https:\/\//i.test(item.url));
-    return { feed:'connected', articles };
-  } catch { return { feed:'unavailable', articles: [] as Article[] }; }
+    return { feed: 'connected', articles };
+  } catch { return { feed: 'unavailable', articles: [] as Article[] }; }
+}
+
+export const load: PageServerLoad = async ({ fetch }) => {
+  const [news, impacts] = await Promise.all([
+    loadArticles(fetch),
+    loadFromBackend<{ impacts: NewsImpact[] }>(fetch, 'api/news/impacts', 5000)
+  ]);
+  return { ...news, impacts: impacts.ok ? impacts.data.impacts : [] };
 };
