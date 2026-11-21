@@ -21,8 +21,37 @@
   };
   const categoryLabels: Record<Proposal['kind'], string> = {
     fixed_term_deposit: 'Fixed-term deposit',
+    fixed_term_investment: 'Fixed-term investment',
     credit_line: 'Credit line'
   };
+  const rate = (percent: number) => percent.toLocaleString('en-GB', { maximumFractionDigits: 2 });
+
+  /** One card per product family (its terms are options inside the card); a credit line is its own card. */
+  type Card = { key: string; options: Proposal[] };
+  function groupCards(proposals: Proposal[]): Card[] {
+    const cards: Card[] = [];
+    for (const proposal of proposals) {
+      const key = proposal.family_id ?? proposal.id;
+      const card = cards.find((existing) => existing.key === key);
+      if (card) card.options.push(proposal);
+      else cards.push({ key, options: [proposal] });
+    }
+    for (const card of cards) card.options.sort((first, second) => (first.term_days ?? 0) - (second.term_days ?? 0));
+    return cards;
+  }
+
+  // Term the owner picked per family; until then show the decided term, else the agent's suggestion.
+  let chosen = $state<Record<string, string>>({});
+  function shown(card: Card): Proposal {
+    return card.options.find((option) => option.id === chosen[card.key])
+      ?? card.options.find((option) => option.status === 'approved' || option.status === 'declined')
+      ?? card.options.find((option) => option.is_recommended_term)
+      ?? card.options[0];
+  }
+  function choose(card: Card, proposal: Proposal) {
+    chosen[card.key] = proposal.id;
+    confirming = '';
+  }
   const deliveryLabels: Record<StoredNotification['status'], string> = {
     queued: 'In your inbox',
     sent: 'E-mail sent',
@@ -83,19 +112,40 @@
     {#each board.warnings as warning (warning)}<p class="note" role="status">{warning}</p>{/each}
     <DepositComparison proposals={board.proposals} />
     <div class="proposal-grid">
-      {#each board.proposals as proposal, index (proposal.id)}
+      {#each groupCards(board.proposals) as card, index (card.key)}
+        {@const proposal = shown(card)}
         <article class="panel proposal enter" style:--i={index}>
-          <div class="panel-head"><p class="eyebrow">{categoryLabels[proposal.kind]}</p><span class="status">{statusLabels[proposal.status]}</span></div>
+          <div class="panel-head">
+            <p class="eyebrow">
+              {#if proposal.family_name}Option {proposal.family_rank} · {proposal.family_name}{:else}{categoryLabels[proposal.kind]}{/if}
+            </p>
+            <span class="status">{statusLabels[proposal.status]}</span>
+          </div>
           <h2>{proposal.title}</h2><strong class="amount"><AnimatedNumber value={proposal.amount} format={euro} /></strong>
           <p class="badges">
             {#if proposal.requires_approval}<span class="tag">Needs your approval</span>{/if}
             {#if proposal.execution_mode === 'simulated'}<span class="tag estimate">Simulation · no real money moves</span>{/if}
           </p>
+          {#if proposal.family_recommendation_reason}
+            <p class="family-reason"><b>Why CFOcus suggests this:</b> {proposal.family_recommendation_reason}</p>
+          {/if}
+          {#if card.options.length > 1}
+            <div class="term-choice">
+              <p class="minor" id="terms-{card.key}">How long can the money stay put? Pick a term:</p>
+              <div class="switches" role="group" aria-labelledby="terms-{card.key}">
+                {#each card.options as option (option.id)}
+                  <button aria-pressed={option.id === proposal.id} onclick={() => choose(card, option)}>
+                    {option.term_days} days{#if option.is_recommended_term}<span> · suggested</span>{/if}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
           {#if proposal.term_days !== null || proposal.annual_rate_pct !== null}
             <ul class="facts">
               {#if proposal.term_days !== null}<li><span>Term</span><b>{proposal.term_days} days</b></li>{/if}
-              {#if proposal.annual_rate_pct !== null}<li><span>Rate (illustrative)</span><b>{proposal.annual_rate_pct.toFixed(1)} % a year</b></li>{/if}
-              {#if proposal.interest_eur !== null}<li><span>Interest (illustrative)</span><b>≈ {euro(proposal.interest_eur)}</b></li>{/if}
+              {#if proposal.annual_rate_pct !== null}<li><span>Rate (illustrative)</span><b>{rate(proposal.annual_rate_pct)} % a year</b></li>{/if}
+              {#if proposal.interest_eur !== null}<li><span>{proposal.kind === 'fixed_term_deposit' ? 'Interest' : 'Return'} (illustrative)</span><b>≈ {euro(proposal.interest_eur)}</b></li>{/if}
               {#if proposal.min_amount !== null}<li><span>Offer range</span><b>{euro(proposal.min_amount)} – {euro(proposal.amount)}</b></li>{/if}
             </ul>
           {/if}
@@ -111,7 +161,10 @@
               <p class="decision" role="status">Saving your decision…</p>
             {:else if confirming === proposal.id}
               <div class="confirm">
-                <p>Approve this simulated {categoryLabels[proposal.kind].toLowerCase()} of {euro(proposal.amount)}?</p>
+                <p>
+                  {#if proposal.kind === 'credit_line'}Approve this simulated credit line of {euro(proposal.amount)}?
+                  {:else}Approve a simulated placement of {euro(proposal.amount)} for {proposal.term_days} days?{/if}
+                </p>
                 <button class="action" onclick={() => decide(proposal, 'approved')}>Confirm approval</button>
                 <button onclick={() => confirming = ''}>Cancel</button>
               </div>

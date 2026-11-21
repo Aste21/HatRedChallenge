@@ -49,7 +49,8 @@ export type ProposalStatus = 'awaiting_approval' | 'approved' | 'declined' | 'su
 
 export type Proposal = {
   id: string;
-  kind: 'fixed_term_deposit' | 'credit_line';
+  group: string;
+  kind: 'fixed_term_deposit' | 'fixed_term_investment' | 'credit_line';
   title: string;
   amount: number;
   term_days: number | null;
@@ -59,6 +60,15 @@ export type Proposal = {
   lowest_balance: number | null;
   buffer_eur: number | null;
   safe_amount: number | null;
+  forecast_limit_days: number | null;
+  /** Product family the placement belongs to (null for a credit line). */
+  family_id: string | null;
+  family_name: string | null;
+  /** 1 = the agent's strongest recommendation. */
+  family_rank: number | null;
+  /** The term the agent prefers within its family. */
+  is_recommended_term: boolean;
+  family_recommendation_reason: string | null;
   analysis: string;
   recommendation: string;
   rationale: string;
