@@ -13,6 +13,7 @@ from app.agents.investment.agent import (
     InstrumentAgentClient,
     NotificationDraft,
     Proposal,
+    SURPLUS_GROUP,
     credit_line_proposal,
     deposit_proposal,
     format_euro,
@@ -112,7 +113,7 @@ class ProposalService:
 
         Steps:
             1. Forecast the balance (fast; raises `ServiceUnavailableError` if the forecast service is down).
-            2. Reuse the instrument agent's answer for the same statement date and official news events
+            2. Reuse the instrument agent's answer for the same forecast
                for 15 minutes, because it calls the LLM and takes several seconds.
             3. Merge the stored decisions: an approval in a group supersedes its alternatives.
         """
@@ -120,7 +121,7 @@ class ProposalService:
         forecast_key = (
             forecast.as_of,
             json.dumps(
-                [event.model_dump() for event in forecast.official.events], sort_keys=True, default=str
+                forecast.model_dump(mode="json"), sort_keys=True
             ),
         )
         with self._lock:
@@ -137,13 +138,19 @@ class ProposalService:
         _, (as_of, _), proposals, draft, warnings = cached
 
         decisions = self._repository.list_decisions(account_id)
-        # Only approvals on this board use up the cash; an approval from an older statement or forecast
-        # (other proposal ids) must not block today's alternatives.
+        # Keep surplus approvals for the same statement even if the shortlist changes.
         current_ids = {proposal.id for proposal in proposals}
         approved_groups = {
             decision.proposal_group
             for proposal_id, decision in decisions.items()
-            if decision.decision == "approved" and proposal_id in current_ids
+            if decision.decision == "approved"
+            and (
+                proposal_id in current_ids
+                or (
+                    decision.proposal_group == SURPLUS_GROUP
+                    and proposal_id.endswith(f"-{as_of.isoformat()}")
+                )
+            )
         }
         views = []
         for proposal in proposals:
@@ -172,7 +179,7 @@ class ProposalService:
     def _build_proposals(
         self, forecast: Forecast
     ) -> tuple[list[Proposal], NotificationDraft | None, list[str]]:
-        """Turn the forecast into proposals, asking the instrument agent for deposit offers.
+        """Turn the forecast into proposals, asking the instrument agent for investment offers.
 
         Args:
             forecast: The current balance forecast.
@@ -189,11 +196,17 @@ class ProposalService:
         draft: NotificationDraft | None = None
         try:
             recommendation = self._instrument_agent_client.recommend(forecast)
-        except ServiceUnavailableError as error:
-            warnings.append(f"Deposit offers are not available: {error}")
+            placements = [
+                deposit_proposal(forecast, offer, family=family, family_rank=rank)
+                for rank, family in enumerate(recommendation.families, start=1)
+                for offer in family.variants
+            ]
+        except (ServiceUnavailableError, ValueError) as error:
+            logger.warning("Investment proposals unavailable: %s", error)
+            warnings.append("Investment offers are not available.")
         else:
             draft = recommendation.notification
-            proposals.extend(deposit_proposal(forecast, offer) for offer in recommendation.offers)
+            proposals.extend(placements)
         return proposals, draft, warnings
 
     def decide(self, account_id: str, proposal_id: str, decision: Decision) -> DecisionResult:
