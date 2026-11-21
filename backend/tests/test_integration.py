@@ -2,6 +2,8 @@ import datetime
 import smtplib
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -243,8 +245,12 @@ def test_approval_sends_one_blind_copy_and_checks_both_recipients(
         llm_base_url="http://unused", smtp_host="smtp.example.org", smtp_user="sender@example.org",
         smtp_password="unused", owner_email=owner, approval_copy_email=copy,
     )
+    family = {
+        **DEPOSIT_FAMILY,
+        "variants": [make_variant("deposit_30d", "Deposit <Demo> & Co.", 30, 3.5)],
+    }
     service = ProposalService(
-        settings, FakeForecastClient(make_forecast()), FakeInstrumentAgentClient(), repository
+        settings, FakeForecastClient(make_forecast()), FakeInstrumentAgentClient(families=[family]), repository
     )
     app.dependency_overrides[get_proposal_service] = lambda: service
 
@@ -267,6 +273,16 @@ def test_approval_sends_one_blind_copy_and_checks_both_recipients(
     assert sender == settings.smtp_user and envelope == [owner, copy]
     assert copy.encode() not in payload
     assert owner.encode() in payload
+    message = BytesParser(policy=policy.default).parsebytes(payload)
+    assert message.get_content_type() == "multipart/alternative"
+    plain = message.get_body(("plain",)).get_content()
+    html = message.get_body(("html",)).get_content()
+    reference = "SIM-" + response.json()["transaction"]["id"][:8].upper()
+    for content in (plain, html):
+        assert "CFOcus" in content and "Pizzeria Amalfi" in content
+        assert "€7,391.53" in content and reference in content
+    assert "Deposit <Demo> & Co." in plain
+    assert "Deposit &lt;Demo&gt; &amp; Co." in html and "<Demo>" not in html
 
 
 def test_decline_records_no_transaction(client: TestClient) -> None:

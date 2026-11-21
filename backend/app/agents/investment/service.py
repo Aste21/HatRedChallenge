@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.accounts import ACCOUNTS
 from app.agents.investment.agent import (
     SURPLUS_GROUP,
     InstrumentAgentClient,
@@ -16,11 +17,11 @@ from app.agents.investment.agent import (
     Proposal,
     credit_line_proposal,
     deposit_proposal,
-    format_euro,
     get_instrument_agent_client,
 )
 from app.config import Settings, get_settings
 from app.forecasting.client import Forecast, ForecastClient, get_forecast_client
+from app.notifications.approval import approval_receipt
 from app.notifications.email import send_email, smtp_configured
 from app.service_client import ServiceUnavailableError
 from app.storage.decisions import (
@@ -245,6 +246,7 @@ class ProposalService:
         )
         transaction: SimulatedTransaction | None = None
         notification: StoredNotification | None = None
+        html = None
         if decision == "approved":
             transaction = SimulatedTransaction(
                 id=new_id(),
@@ -254,32 +256,29 @@ class ProposalService:
                 amount=proposal.amount,
                 created_at=decided_at,
             )
+            body, html = approval_receipt(ACCOUNTS[account_id].business_name, proposal, transaction)
             notification = StoredNotification(
                 id=new_id(),
                 recipient=self._settings.owner_email or IN_APP_RECIPIENT,
                 subject=f"Approved (simulated): {proposal.title}",
-                body=(
-                    f"You approved: {proposal.title}.\n\n"
-                    f"Amount: {format_euro(proposal.amount)}\n"
-                    f"Why: {proposal.rationale}\n\n"
-                    f"{proposal.on_approval}\n"
-                ),
+                body=body,
                 status="queued",
                 created_at=decided_at,
             )
         self._repository.record_decision(account_id, stored_decision, transaction, notification)
 
-        notification_status = self._deliver(notification) if notification is not None else None
+        notification_status = self._deliver(notification, html) if notification is not None else None
         updated = proposal.model_copy(update={"status": decision, "decided_at": decided_at})
         return DecisionResult(
             proposal=updated, transaction=transaction, notification_status=notification_status
         )
 
-    def _deliver(self, notification: StoredNotification) -> str:
+    def _deliver(self, notification: StoredNotification, html: str | None) -> str:
         """Send a queued notification by e-mail when SMTP is configured.
 
         Args:
-            notification: The stored notification.
+            notification: The stored notification with its plain-text receipt.
+            html: Formatted receipt for email clients.
 
         Returns:
             The resulting delivery status.
@@ -289,7 +288,7 @@ class ProposalService:
         try:
             send_email(
                 self._settings, notification.recipient, notification.subject, notification.body,
-                bcc=self._settings.approval_copy_email,
+                html=html, bcc=self._settings.approval_copy_email,
             )
         except (OSError, smtplib.SMTPException):
             logger.exception("Sending the notification e-mail failed")
