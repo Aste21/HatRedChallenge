@@ -1,10 +1,20 @@
 <script lang="ts">
   import Heading from '#lib/Heading.svelte';
   import BalanceChart from '#lib/BalanceChart.svelte';
-  import { months, december, closing, bills, lowest, dateLabel, money } from '#lib/ledger.ts';
+  import { months, december, closing, bills, lowest, scenario, dateLabel, money } from '#lib/ledger.ts';
+  import { providePageDetails } from '#lib/chat/page-context.ts';
 
   let allMonths = $state(false);
   const newest = [...months].reverse();
+
+  // The chart and the collapsed table hide figures that are not plain text on screen; give them to the assistant.
+  providePageDetails(() => [
+    'Monthly balances 2025 (money in / money out / closing balance):',
+    ...months.map((row) => `${row.name}: ${money(row.income)} / ${money(row.costs)} / ${money(row.balance)}`),
+    `Lowest daily balance: ${money(lowest.balance)} on ${dateLabel(lowest.date)}.`,
+    'Chart "Forecast" tab, illustrative January 2026 scenario with scheduled bills only and no receipts:',
+    ...[7, 14, 31].map((days) => `after ${days} days (${dateLabel(scenario[days - 1].date)}): ${money(scenario[days - 1].balance)}`)
+  ].join('\n'));
 </script>
 
 <svelte:head><title>Cashflow</title></svelte:head>
