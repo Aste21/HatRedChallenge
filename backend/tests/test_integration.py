@@ -10,6 +10,7 @@ from app.agents.investment.agent import InstrumentRecommendation
 from app.agents.investment.service import ProposalService, get_proposal_service
 from app.config import Settings
 from app.forecasting.client import Forecast, ForecastClient, get_forecast_client
+from app.forecasting.offer_terms import DEFAULT_LOCK_DAYS, OfferTermsClient
 from app.main import app
 from app.service_client import ServiceUnavailableError
 from app.storage.decisions import DecisionRepository, StoredDecision, get_decision_repository
@@ -67,29 +68,51 @@ class FakeForecastClient:
 class FakeInstrumentAgentClient:
     configured = True
 
-    def __init__(self, available: bool = True) -> None:
+    def __init__(self, available: bool = True, families: list[dict] | None = None) -> None:
         self.available = available
+        self.families = families if families is not None else [DEPOSIT_FAMILY]
         self.calls = 0
 
     def recommend(self, forecast: Forecast) -> InstrumentRecommendation:
         self.calls += 1
         if not self.available:
             raise ServiceUnavailableError("The instrument agent is not reachable right now.")
-        offers = [
-            {
-                "offer_id": f"deposit_{days}d",
-                "name": f"Demo {days}-day deposit",
-                "term_days": days,
-                "currency": "EUR",
-                "min_amount": "1000.00",
-                "max_amount": "7391.53",
-                "annual_rate_pct": rate,
-            }
-            for days, rate in ((30, 3.5), (60, 3.8))
-        ]
+        notification = {"subject": "Deposit offers", "body": "Two demo offers."}
         return InstrumentRecommendation.model_validate(
-            {"offers": offers, "notification": {"subject": "Deposit offers", "body": "Two demo offers."}}
+            {"families": self.families, "notification": notification}
         )
+
+
+def make_variant(offer_id: str, name: str, days: int, rate: float, max_amount: str = "7391.53") -> dict:
+    return {
+        "offer_id": offer_id,
+        "name": name,
+        "term_days": days,
+        "currency": "EUR",
+        "min_amount": "1000.00",
+        "max_amount": max_amount,
+        "annual_rate_pct": rate,
+    }
+
+
+DEPOSIT_FAMILY = {
+    "family_id": "term_deposit",
+    "family_name": "Term Deposit",
+    "recommended_offer_id": "deposit_30d",
+    "reason": "Shortest lockup with a solid rate.",
+    "variants": [
+        make_variant("deposit_30d", "30-day Term Deposit", 30, 3.5),
+        make_variant("deposit_60d", "60-day Term Deposit", 60, 3.8),
+    ],
+}
+
+BILL_FAMILY = {
+    "family_id": "government_bill",
+    "family_name": "Government Bill",
+    "recommended_offer_id": "government_bill_60d",
+    "reason": "Higher amount limit.",
+    "variants": [make_variant("government_bill_60d", "60-day Government Bill", 60, 3.2, "5000.00")],
+}
 
 
 class FakeNewsClient:
@@ -204,9 +227,43 @@ def test_credit_line_proposed_when_balance_may_go_negative(repository: DecisionR
     assert credit_line["kind"] == "credit_line"
     assert credit_line["amount"] == 23000
     assert "−€22,097.60" in credit_line["analysis"]
-    assert board["warnings"] == [
-        "Deposit offers are not available: The instrument agent is not reachable right now."
+    assert board["warnings"] == ["Investment offers are not available."]
+
+
+def test_families_become_ranked_proposals_with_a_recommended_term(repository: DecisionRepository) -> None:
+    agent = FakeInstrumentAgentClient(families=[DEPOSIT_FAMILY, BILL_FAMILY])
+    for client in make_client(repository, make_forecast(), agent):
+        proposals = client.get("/api/proposals").json()["proposals"]
+
+    summary = [
+        (
+            proposal["family_id"],
+            proposal["family_rank"],
+            proposal["term_days"],
+            proposal["is_recommended_term"],
+        )
+        for proposal in proposals
     ]
+    assert summary == [
+        ("term_deposit", 1, 30, True),
+        ("term_deposit", 1, 60, False),
+        ("government_bill", 2, 60, True),
+    ]
+    bill = proposals[2]
+    assert bill["kind"] == "fixed_term_investment"
+    assert bill["family_recommendation_reason"] == "Higher amount limit."
+    assert bill["interest_eur"] == round(5000 * 0.032 * 60 / 365, 2)
+    assert "capped at the offer's maximum of €5,000.00" in bill["rationale"]
+    assert {proposal["group"] for proposal in proposals} == {"surplus_placement"}
+
+
+def test_offer_above_the_forecast_limit_is_rejected(repository: DecisionRepository) -> None:
+    too_large = {**BILL_FAMILY, "variants": [make_variant("government_bill_60d", "Bill", 60, 3.2, "9000.00")]}
+    for client in make_client(repository, make_forecast(), FakeInstrumentAgentClient(families=[too_large])):
+        board = client.get("/api/proposals").json()
+
+    assert board["proposals"] == []
+    assert board["warnings"] == ["Investment offers are not available."]
 
 
 def test_business_snapshot_contains_forecast_and_skips_unavailable_news(
@@ -254,7 +311,9 @@ class RecordingServiceClient:
 def test_applied_news_events_are_sent_with_the_forecast(tmp_path: Path) -> None:
     impact_repository = NewsImpactRepository(tmp_path / "impacts.sqlite3")
     service_client = RecordingServiceClient()
-    forecast_client = ForecastClient(service_client, impact_repository.all_events, 60.0)
+    forecast_client = ForecastClient(
+        service_client, impact_repository.all_events, 60.0, lambda: (14, 30, 120)
+    )
     app.dependency_overrides[get_forecast_client] = lambda: forecast_client
     app.dependency_overrides[get_news_impact_repository] = lambda: impact_repository
     try:
@@ -275,6 +334,7 @@ def test_applied_news_events_are_sent_with_the_forecast(tmp_path: Path) -> None:
     assert [impact["article_id"] for impact in impacts] == ["abc123def456"]
     forecast_request = next(body for path, body in service_client.requests if path == "/forecast")
     assert forecast_request["events"] == [ENERGY_EVENT]
+    assert forecast_request["lock_days"] == [14, 30]
     assert removed.status_code == 204
     assert missing.status_code == 404
     assert impact_repository.all_events("amalfi") == []
@@ -337,3 +397,23 @@ def test_approval_from_an_older_board_does_not_block_new_proposals(
     statuses = {proposal["status"] for proposal in client.get("/api/proposals").json()["proposals"]}
 
     assert statuses == {"awaiting_approval"}
+
+
+class OfferTermsServiceClient:
+    configured = True
+
+    def __init__(self, answer: dict | None) -> None:
+        self.answer = answer
+
+    def request_json(self, method: str, path: str, **options) -> dict:
+        if self.answer is None:
+            raise ServiceUnavailableError("down")
+        return self.answer
+
+
+def test_offer_terms_come_from_the_catalog_and_fall_back_to_defaults() -> None:
+    catalog = OfferTermsClient(OfferTermsServiceClient({"term_days": [60, 14, 30, 30]}))
+    unavailable = OfferTermsClient(OfferTermsServiceClient(None))
+
+    assert catalog.lock_days() == (14, 30, 60)
+    assert unavailable.lock_days() == DEFAULT_LOCK_DAYS

@@ -12,8 +12,9 @@ from app.service_client import ServiceClient
 
 logger = logging.getLogger(__name__)
 
-ProposalKind = Literal["fixed_term_deposit", "credit_line"]
+ProposalKind = Literal["fixed_term_deposit", "fixed_term_investment", "credit_line"]
 
+TERM_DEPOSIT_FAMILY = "term_deposit"
 SURPLUS_GROUP = "surplus_placement"
 LIQUIDITY_GROUP = "liquidity_cover"
 CREDIT_LINE_ROUNDING_EUR = 1000
@@ -40,6 +41,8 @@ class NotificationDraft(BaseModel):
 
 
 class RecommendedFamily(BaseModel):
+    """A product family the agent recommends, with all its eligible terms and the one it prefers."""
+
     family_id: str
     family_name: str
     recommended_offer_id: str
@@ -47,7 +50,12 @@ class RecommendedFamily(BaseModel):
     variants: list[InstrumentOffer]
 
     @model_validator(mode="after")
-    def validate_recommended_offer(self):
+    def validate_recommended_offer(self) -> "RecommendedFamily":
+        """Reject a recommendation that points outside the family.
+
+        Returns:
+            The validated family.
+        """
         if self.recommended_offer_id not in {offer.offer_id for offer in self.variants}:
             raise ValueError("The recommended offer must belong to the family.")
         return self
@@ -116,7 +124,7 @@ class InstrumentAgentClient:
             forecast: The current balance forecast.
 
         Returns:
-            Eligible offers and an e-mail draft.
+            Up to three ranked families with their eligible terms, and an e-mail draft.
         """
         payload = self._service_client.request_json(
             "POST",
@@ -125,7 +133,9 @@ class InstrumentAgentClient:
                 "account_id": forecast.account_id,
                 "as_of": forecast.as_of.isoformat(),
                 "official": {
-                    "safe_to_lock": [limit.model_dump(mode="json") for limit in forecast.official.safe_to_lock]
+                    "safe_to_lock": [
+                        limit.model_dump(mode="json") for limit in forecast.official.safe_to_lock
+                    ]
                 },
             },
         )
@@ -178,29 +188,44 @@ def deposit_proposal(
     family: RecommendedFamily,
     family_rank: int,
 ) -> Proposal:
-    """Build a simulated placement proposal for an eligible term."""
+    """Explain one eligible fixed-term offer with the forecast numbers behind it.
+
+    Args:
+        forecast: The current balance forecast.
+        offer: An eligible variant of the family.
+        family: The recommended product family the variant belongs to.
+        family_rank: Position of the family in the agent's ranking, starting at 1.
+
+    Returns:
+        The proposal for the owner.
+
+    Raises:
+        ValueError: If the forecast has no limit covering the offer's term, or the offer's amounts do not
+            fit that limit (the agent must never propose more than the forecast allows).
+
+    Steps:
+        1. Look up the safe-to-lock limit that covers the offer's term.
+        2. Check that the offered amounts stay within that limit.
+        3. Compute the illustrative return for the offered amount and term.
+        4. Write the analysis, recommendation, rationale and approval effect from those numbers.
+    """
     scenario = forecast.official
     limit_days = offer.forecast_limit_days or offer.term_days
-    limit = next(
-        (entry for entry in scenario.safe_to_lock if entry.days == limit_days),
-        None,
-    )
+    limit = next((entry for entry in scenario.safe_to_lock if entry.days == limit_days), None)
     if limit is None or limit_days < offer.term_days:
-        raise ValueError("Offer has no valid supporting forecast limit.")
+        raise ValueError(f"Offer {offer.offer_id} has no forecast limit covering {offer.term_days} days.")
     if not 0 < offer.min_amount <= offer.max_amount <= limit.amount:
-        raise ValueError("Offer amounts exceed the forecast limit or are inconsistent.")
+        raise ValueError(f"Offer {offer.offer_id} amounts do not fit the forecast limit.")
 
-    interest = None
-    interest_note = ""
-    if family.family_id == "term_deposit":
-        interest = round(offer.max_amount * offer.annual_rate_pct / 100 * offer.term_days / 365, 2)
-        interest_note = f" Illustrative gross interest: {format_euro(interest)}."
-
+    interest = round(offer.max_amount * offer.annual_rate_pct / 100 * offer.term_days / 365, 2)
+    capped = offer.max_amount < limit.amount
+    cap_note = f", capped at the offer's maximum of {format_euro(offer.max_amount)}" if capped else ""
+    is_deposit = family.family_id == TERM_DEPOSIT_FAMILY
     return Proposal(
         id=f"{forecast.account_id}-{offer.offer_id}-{forecast.as_of.isoformat()}",
         group=SURPLUS_GROUP,
-        kind="fixed_term_deposit",
-        title=f"{offer.name}: up to {format_euro(offer.max_amount)}",
+        kind="fixed_term_deposit" if is_deposit else "fixed_term_investment",
+        title=f"Put {format_euro(offer.max_amount)} into a {offer.name}",
         amount=offer.max_amount,
         term_days=offer.term_days,
         annual_rate_pct=offer.annual_rate_pct,
@@ -216,22 +241,26 @@ def deposit_proposal(
         is_recommended_term=offer.offer_id == family.recommended_offer_id,
         family_recommendation_reason=family.reason,
         analysis=(
-            f"The pessimistic lowest balance over {limit_days} days is "
-            f"{format_euro(limit.lowest_balance)}. After keeping "
-            f"{_buffer_explanation(scenario)}, the forecast supports up to "
-            f"{format_euro(limit.amount)}."
+            f"Your balance on {_format_date(forecast.as_of)} was {format_euro(forecast.start_balance)}. "
+            f"Even in a bad case, the balance should not drop below {format_euro(limit.lowest_balance)} "
+            f"in the next {limit_days} days. After keeping {_buffer_explanation(scenario)}, "
+            f"{format_euro(limit.amount)} is not needed in that period."
         ),
         recommendation=(
-            f"Consider up to {format_euro(offer.max_amount)} in {offer.name} "
-            f"at an illustrative annualized rate of {offer.annual_rate_pct:g}%. "
-            "The offers draw from the same cash."
+            f"You could place up to {format_euro(offer.max_amount)} in the {offer.name} "
+            f"at an illustrative {offer.annual_rate_pct:g} % a year. "
+            "All placement offers use the same cash, so choose at most one."
         ),
         rationale=(
-            f"The {offer.term_days}-day offer uses the {limit_days}-day forecast limit "
-            f"and has an eligible maximum of {format_euro(offer.max_amount)}."
-            f"{interest_note}"
+            f"Safe amount = lowest balance in a bad case {format_euro(limit.lowest_balance)} − buffer "
+            f"{format_euro(scenario.buffer.amount)} = {format_euro(limit.amount)}{cap_note}. "
+            f"Illustrative gross return over {offer.term_days} days: about {format_euro(interest)}. "
+            "Demo offer; rates are not real quotes."
         ),
-        on_approval=f"A simulated {offer.name} placement is recorded and you get a confirmation.",
+        on_approval=(
+            f"A simulated placement of {format_euro(offer.max_amount)} in the {offer.name} for "
+            f"{offer.term_days} days is recorded and you get a confirmation. No real money moves."
+        ),
     )
 
 

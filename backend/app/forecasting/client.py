@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.config import get_settings
+from app.forecasting.offer_terms import OfferTermsClient
 from app.service_client import ServiceClient, ServiceUnavailableError
 from app.storage.news_impacts import get_news_impact_repository
 
@@ -103,6 +104,7 @@ class ForecastClient:
         service_client: ServiceClient,
         load_events: Callable[[str], list[dict[str, Any]]],
         news_timeout_seconds: float,
+        load_lock_days: Callable[[], tuple[int, ...]],
     ) -> None:
         """Wire the client to the forecast service.
 
@@ -110,10 +112,13 @@ class ForecastClient:
             service_client: HTTP client pointed at the forecast service.
             load_events: Returns the news events an account applied; they are sent with every forecast.
             news_timeout_seconds: Timeout for turning news into events, which calls the LLM.
+            load_lock_days: Returns the terms (in days) the instrument catalog offers; the forecast prices
+                a safe-to-lock amount for each of them.
         """
         self._service_client = service_client
         self._load_events = load_events
         self._news_timeout_seconds = news_timeout_seconds
+        self._load_lock_days = load_lock_days
         self._cache: dict[tuple[str, int, str], tuple[float, Forecast | ServiceUnavailableError]] = {}
 
     @property
@@ -133,17 +138,18 @@ class ForecastClient:
             horizon_days: Number of days to forecast (7–365).
 
         Returns:
-            The forecast with daily bands and the safe-to-lock amounts for 30/60/90 days.
+            The forecast with daily bands and a safe-to-lock amount for every catalog term in the horizon.
 
         Steps:
-            1. Load the news events the owner applied; they are part of the cache key.
+            1. Load the news events the owner applied and the catalog terms; both are part of the cache key.
             2. Reuse a recent answer: every page and chat message needs the forecast, but it only changes
                when a new statement is uploaded or news is applied. A recent failure is reused too, so a
                service that is down does not slow down every page by the connection timeout.
             3. Otherwise ask the forecast service and remember the forecast or the failure.
         """
         events = self._load_events(account_id)
-        cache_key = (account_id, horizon_days, json.dumps(events, sort_keys=True))
+        lock_days = [days for days in self._load_lock_days() if days <= horizon_days] or [horizon_days]
+        cache_key = (account_id, horizon_days, json.dumps([events, lock_days], sort_keys=True))
         cached = self._cache.get(cache_key)
         if cached is not None:
             stored_at, result = cached
@@ -157,7 +163,6 @@ class ForecastClient:
                     raise result
                 return result
 
-        lock_days = [days for days in (30, 60, 90) if days <= horizon_days] or [horizon_days]
         try:
             payload = self._service_client.request_json(
                 "POST",
@@ -203,8 +208,12 @@ def get_forecast_client() -> ForecastClient:
         The shared forecast client.
     """
     settings = get_settings()
+    offer_terms_client = OfferTermsClient(
+        ServiceClient("instrument agent", settings.instrument_api_url, settings.service_timeout_seconds)
+    )
     return ForecastClient(
         ServiceClient("forecast service", settings.forecast_api_url, settings.service_timeout_seconds),
         get_news_impact_repository().all_events,
         settings.instrument_timeout_seconds,
+        offer_terms_client.lock_days,
     )

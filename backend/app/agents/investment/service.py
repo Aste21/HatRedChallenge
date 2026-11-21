@@ -10,10 +10,10 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.agents.investment.agent import (
+    SURPLUS_GROUP,
     InstrumentAgentClient,
     NotificationDraft,
     Proposal,
-    SURPLUS_GROUP,
     credit_line_proposal,
     deposit_proposal,
     format_euro,
