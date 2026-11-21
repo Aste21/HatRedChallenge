@@ -297,7 +297,19 @@ async def fetch_news(x_admin_token: str | None = Header(default=None)):
 
         keyword_candidates = []
         keyword_filtered = 0
-        for item in new_items:
+
+        retry_rows = conn.execute(
+            """SELECT id, url, title, source, published, summary FROM articles
+               WHERE status='review'
+               AND reason='Model unavailable or returned invalid output.'"""
+        ).fetchall()
+
+        new_ids = {item["id"] for item in new_items}
+        items_to_filter = new_items + [
+            dict(row) for row in retry_rows if row["id"] not in new_ids
+        ]
+
+        for item in items_to_filter:
             if keyword_match(item["title"], item["summary"]):
                 keyword_candidates.append(item)
             else:
