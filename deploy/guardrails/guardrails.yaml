@@ -1,0 +1,14 @@
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: NemoGuardrails
+metadata:
+  name: cfo-guardrails
+  namespace: autonomous-cfo-guardrails
+  annotations:
+    security.opendatahub.io/enable-auth: "true"
+spec:
+  replicas: 1
+  nemoConfigs:
+    - name: cfo-guardrails-config
+      configMaps:
+        - cfo-guardrails-config
+      default: true
