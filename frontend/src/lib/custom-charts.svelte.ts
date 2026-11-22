@@ -1,6 +1,5 @@
 /**
- * The owner's own Overview charts, added from the chat. Kept in this browser, like the Overview layout,
- * and separate from the built-in widgets so deleting one never touches the rest.
+ * The owner's Overview charts. The browser keeps a local copy of the account layout.
  */
 import { SPANS, type Span } from './dashboard.svelte.ts';
 import { isBreakdown, normaliseSpec, specKey, type ChartSpec, type ChartType } from './charts/custom.ts';
@@ -11,6 +10,18 @@ const MAX_CHARTS = 24;
 
 const minSpanFor = (spec: ChartSpec): Span => (isBreakdown(spec) ? 4 : 6);
 
+function readCharts(value: unknown): CustomChart[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  return value.flatMap((entry) => {
+    const spec = normaliseSpec(entry?.spec);
+    if (!spec || typeof entry.id !== 'string' || !entry.id || ids.has(entry.id)) return [];
+    ids.add(entry.id);
+    const span = SPANS.includes(entry.span) && entry.span >= minSpanFor(spec) ? (entry.span as Span) : 12;
+    return [{ id: entry.id, spec, span }];
+  }).slice(0, MAX_CHARTS);
+}
+
 function newId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `chart-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -20,21 +31,37 @@ class CustomCharts {
   visible = $derived(this.charts.map((chart) => chart.id));
   spans = $derived(Object.fromEntries(this.charts.map((chart) => [chart.id, chart.span])) as Record<string, Span>);
   #storageKey = '';
+  #pendingSave = Promise.resolve();
 
-  /** Loads the account's saved charts; malformed entries are dropped. */
-  restore(accountId: string) {
-    this.#storageKey = `overview-custom-charts-v1:${accountId}`;
+  /** Loads this browser's charts or falls back to the account's shared default. */
+  async restore(accountId: string) {
+    const storageKey = `overview-custom-charts-v1:${accountId}`;
+    this.#storageKey = storageKey;
+    let saved: unknown;
     try {
-      const saved = JSON.parse(localStorage.getItem(this.#storageKey) ?? '[]');
-      if (!Array.isArray(saved)) return;
-      this.charts = saved.flatMap((entry) => {
-        const spec = normaliseSpec(entry?.spec);
-        if (!spec || typeof entry.id !== 'string') return [];
-        const span = SPANS.includes(entry.span) && entry.span >= minSpanFor(spec) ? (entry.span as Span) : 12;
-        return [{ id: entry.id, spec, span }];
-      }).slice(0, MAX_CHARTS);
+      saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
     } catch {
       // Broken saved charts are ignored.
+    }
+    this.charts = readCharts(saved);
+    try {
+      if (Array.isArray(saved) && (saved.length === 0 || this.charts.length)) {
+        if (this.charts.length) {
+          await fetch('/api/dashboard-defaults', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ charts: this.charts })
+          });
+        }
+        return;
+      }
+      const initialCharts = this.charts;
+      const response = await fetch('/api/dashboard-defaults');
+      if (!response.ok) return;
+      const { charts } = await response.json();
+      if (this.#storageKey === storageKey && this.charts === initialCharts) this.charts = readCharts(charts);
+    } catch {
+      // Local charts remain usable when the backend is unavailable.
     }
   }
 
@@ -43,6 +70,16 @@ class CustomCharts {
     try {
       localStorage.setItem(this.#storageKey, JSON.stringify(this.charts));
     } catch { /* private mode: the charts are not remembered */ }
+    const body = JSON.stringify({ charts: this.charts });
+    this.#pendingSave = this.#pendingSave.then(async () => {
+      const response = await fetch('/api/dashboard-defaults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true
+      });
+      if (!response.ok) throw new Error('The chart layout could not be saved.');
+    }).catch((error: unknown) => { console.warn(error); });
   }
 
   get(id: string) {

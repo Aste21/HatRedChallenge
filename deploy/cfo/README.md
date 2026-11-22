@@ -66,6 +66,8 @@ Refresh **Proposals** in CFOcus and approve an offer again. The command resets o
 
 ## Access and acceptance
 
+After deploying shared dashboard defaults, open CFOcus once in the browser that already has the demo charts in **Your charts**. The first nonempty saved layout becomes the account's default. Adding or editing a chart publishes the updated layout. Sign in with the same account in a fresh browser to see it in **Overview**.
+
 Open the public `autonomous-cfo` Route and use the application login shown on the landing page. The demo account shares business data across its sessions. This release uses `/data/cfocus-demo.sqlite3` so the original access-controlled database is preserved on the same PVC. The backend and instrument API are internal. Input policy failures return 422, and a temporarily unavailable NeMo service returns 503. The MLflow experiment `autonomous-cfo-agents` is in workspace `cfo-ai`. Traces record decisions, timings and model metadata.
 
 ```powershell

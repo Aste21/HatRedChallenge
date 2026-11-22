@@ -14,7 +14,7 @@
   // svelte-ignore state_referenced_locally
   provideLedger(createLedger(data.statement));
   // svelte-ignore state_referenced_locally
-  onMount(() => { chat.restore(data.account.id); customCharts.restore(data.account.id); });
+  onMount(() => { chat.restore(data.account.id); void customCharts.restore(data.account.id); });
 
   const links = [
     { path: '/overview', label: 'Overview' },

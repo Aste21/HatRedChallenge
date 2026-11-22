@@ -36,16 +36,22 @@
   const views: { id: View; label: string }[] = [{ id: 'ready', label: 'Ready-made' }, { id: 'own', label: 'Your charts' }];
   const panelIds: Record<View, string> = { ready: 'view-ready', own: 'your-charts' };
   const ownChartsHash = `#${panelIds.own}`;
-  let view = $state<View>('ready');
+  const readyChartsHash = `#${panelIds.ready}`;
+  let selectedView = $state<View | null>(null);
+  let view = $derived<View>(selectedView ?? (customCharts.charts.length ? 'own' : 'ready'));
   const tabs: Record<View, HTMLButtonElement | undefined> = $state({ ready: undefined, own: undefined });
 
-  const viewFromHash = (): View => (location.hash === ownChartsHash ? 'own' : 'ready');
-  /** Switch the view and keep the address shareable: "#your-charts" for the owner's charts, no hash otherwise. */
+  const viewFromHash = (): View | null => {
+    if (location.hash === ownChartsHash) return 'own';
+    if (location.hash === readyChartsHash) return 'ready';
+    return null;
+  };
+  /** Switch the view and keep the address shareable. */
   function showView(next: View, focus = false) {
-    view = next;
+    selectedView = next;
     confirmingDelete = null;
     const url = new URL(location.href);
-    url.hash = next === 'own' ? ownChartsHash : '';
+    url.hash = next === 'own' ? ownChartsHash : readyChartsHash;
     if (url.href !== location.href) history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     if (focus) tabs[next]?.focus();
   }
@@ -61,8 +67,8 @@
   // svelte-ignore state_referenced_locally
   onMount(() => {
     layout.restore(data.account.id);
-    view = viewFromHash();
-    const followHash = () => { view = viewFromHash(); };
+    selectedView = viewFromHash();
+    const followHash = () => { selectedView = viewFromHash(); };
     window.addEventListener('hashchange', followHash);
     return () => window.removeEventListener('hashchange', followHash);
   });
@@ -233,7 +239,7 @@
     </ul>
   </section>
 {:else if customizing && customCharts.charts.length}
-  <p class="customize-hint enter">Drag a chart by its title bar to move it, or use its arrow buttons. Change its width with the size buttons or by dragging its right edge. You can also rename a chart, change its style or delete it. Your charts are saved in this browser.</p>
+  <p class="customize-hint enter">Drag a chart by its title bar to move it, or use its arrow buttons. Change its width with the size buttons or by dragging its right edge. You can also rename a chart, change its style or delete it.</p>
 {/if}
 <p class="sr-only" role="status">{announcement}</p>
 
