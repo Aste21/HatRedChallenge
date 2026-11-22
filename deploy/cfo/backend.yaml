@@ -20,6 +20,7 @@ data:
   INSTRUMENT_API_URL: http://cfo-instruments:8080
   NEWS_API_URL: http://news-service.sth.svc:8080
   DATABASE_PATH: /data/cfocus-demo.sqlite3
+  INVESTMENT_ALERT_API_URL: http://127.0.0.1:8080
   MLFLOW_TRACKING_URI: https://mlflow.redhat-ods-applications.svc:8443/mlflow
   MLFLOW_TRACKING_AUTH: kubernetes-namespaced
   MLFLOW_EXPERIMENT_NAME: autonomous-cfo-agents

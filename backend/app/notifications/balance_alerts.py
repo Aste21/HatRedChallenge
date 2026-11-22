@@ -1,10 +1,11 @@
 import argparse
+import asyncio
 import json
 import logging
 import sqlite3
 import time
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from html import escape
@@ -288,7 +289,14 @@ def _best_placement(proposals: list[dict[str, Any]], limits: dict[int, float]) -
     return top_recommendation or max(open_placements, key=lambda proposal: proposal["amount"])
 
 
-def check_balance(settings: Settings, api_url: str, database: sqlite3.Connection, account_id: str) -> None:
+def check_balance(
+    settings: Settings,
+    api_url: str,
+    database: sqlite3.Connection,
+    account_id: str,
+    *,
+    investment_only: bool = False,
+) -> None:
     """Check one account and send the balance, shortfall and investment notices that are due.
 
     Args:
@@ -296,6 +304,7 @@ def check_balance(settings: Settings, api_url: str, database: sqlite3.Connection
         api_url: Base URL of the backend, without a trailing slash.
         database: Connection to the alerts database.
         account_id: Account to check (sent as `X-Account-Id`).
+        investment_only: Limit delivery to investment opportunities.
 
     Steps:
         1. Fetch the forecast and validate the account and closing balance.
@@ -330,11 +339,12 @@ def check_balance(settings: Settings, api_url: str, database: sqlite3.Connection
         ).fetchone()
         if previous and previous[0] > as_of:
             return
-        if current_balance < 0 and not (previous and previous[1]):
+        if not investment_only and current_balance < 0 and not (previous and previous[1]):
             deliver(settings, account_id, balance_notice(current_balance, as_of))
+        alerted = current_balance < 0 and (not investment_only or bool(previous and previous[1]))
         database.execute(
             "INSERT OR REPLACE INTO balance_alerts VALUES (?, ?, ?)",
-            (account_id, as_of, int(current_balance < 0)),
+            (account_id, as_of, int(alerted)),
         )
     logging.info("Checked %s: EUR %.2f on %s", account_id, current_balance, as_of)
 
@@ -345,7 +355,7 @@ def check_balance(settings: Settings, api_url: str, database: sqlite3.Connection
         key=lambda band: band["date"],
         default=None,
     )
-    if current_balance >= 0 and first_shortfall:
+    if not investment_only and current_balance >= 0 and first_shortfall:
         shortfall_date = first_shortfall["date"]
         notice = forecast_notice(shortfall_date, first_shortfall["p50"], current_balance)
         send_once(database, settings, account_id, as_of, f"forecast:{shortfall_date}", notice)
@@ -393,6 +403,58 @@ def sample_notice(kind: NoticeKind) -> Notice:
     return balance_notice(Decimal(lowest["balance"]) / 100, lowest["date"])
 
 
+def check_accounts(settings: Settings, api_url: str, *, investment_only: bool = False) -> None:
+    """Check all accounts and persist the delivery keys beside the backend database.
+
+    Args:
+        settings: Application settings with storage and SMTP configuration.
+        api_url: Backend API base URL.
+        investment_only: Limit delivery to investment opportunities.
+
+    Steps:
+        1. Open the alerts database and initialize its tables.
+        2. Check each account independently.
+    """
+    database_path = settings.database_path.with_name("balance-alerts.sqlite3")
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(database_path, timeout=30)) as database:
+        database.executescript("""
+            CREATE TABLE IF NOT EXISTS balance_alerts
+                (account TEXT PRIMARY KEY, booked_on TEXT NOT NULL, alerted INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS sent_notices
+                (account TEXT, notice_key TEXT, PRIMARY KEY (account, notice_key));
+        """)
+        for account_id in ACCOUNTS:
+            try:
+                check_balance(
+                    settings, api_url.rstrip("/"), database, account_id, investment_only=investment_only
+                )
+            except (httpx.HTTPError, OSError, sqlite3.Error, KeyError, ValueError, ArithmeticError):
+                logging.exception("Balance check failed for %s", account_id)
+
+
+async def monitor_investments(settings: Settings) -> None:
+    """Run the investment check every five minutes during the backend's lifetime.
+
+    Args:
+        settings: Application settings with the backend URL and SMTP configuration.
+
+    Steps:
+        1. Allow the backend to start accepting HTTP requests.
+        2. Check for investment opportunities off the event loop and log storage failures.
+        3. Wait five minutes before checking again.
+    """
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(
+                check_accounts, settings, settings.investment_alert_api_url, investment_only=True
+            )
+        except (OSError, sqlite3.Error):
+            logging.exception("Investment alert storage is unavailable")
+        await asyncio.sleep(300)
+
+
 def main() -> None:
     """Run the alert checker, or send demo e-mails with `--demo`.
 
@@ -424,28 +486,17 @@ def main() -> None:
             ("balance", "forecast", "investment") if arguments.demo == "all" else (arguments.demo,)
         )
         for kind in kinds:
-            deliver(settings, "amalfi", sample_notice(kind))
+            notice = sample_notice(kind)
+            if kind == "investment":
+                notice = replace(notice, subject=f"[Demo] {notice.subject}")
+            deliver(settings, "amalfi", notice)
             print(f"SMTP accepted the {kind} message.")
         return
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    database_path = settings.database_path.with_name("balance-alerts.sqlite3")
-    database_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with closing(sqlite3.connect(database_path, timeout=30)) as database:
-        database.executescript("""
-            CREATE TABLE IF NOT EXISTS balance_alerts
-                (account TEXT PRIMARY KEY, booked_on TEXT NOT NULL, alerted INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS sent_notices
-                (account TEXT, notice_key TEXT, PRIMARY KEY (account, notice_key));
-        """)
-        while True:
-            for account_id in ACCOUNTS:
-                try:
-                    check_balance(settings, arguments.api_url.rstrip("/"), database, account_id)
-                except (httpx.HTTPError, OSError, sqlite3.Error, KeyError, ValueError, ArithmeticError):
-                    logging.exception("Balance check failed for %s", account_id)
-            time.sleep(arguments.interval)
+    while True:
+        check_accounts(settings, arguments.api_url)
+        time.sleep(arguments.interval)
 
 
 if __name__ == "__main__":

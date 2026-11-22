@@ -33,6 +33,20 @@ Approval confirmations use the backend-only `smtp-settings` Secret in `cfo-ai`. 
 
 ## Reopen a proposal before a demo
 
+### Preview an investment opportunity by e-mail
+
+With SMTP configured, the backend checks for an investment opportunity on startup and then every five minutes. It sends an HTML e-mail to `OWNER_EMAIL` when a fixed-term placement is awaiting approval and fits the forecast's cash limits. It records successful sends on the PVC and sends at most one automatic investment e-mail per account and statement date. The first check after deploying this feature can send an e-mail for the current statement.
+
+With `oc` logged in, send a sample investment opportunity from the deployed backend before the demo:
+
+```bash
+./scripts/send-demo-investment-email.sh
+```
+
+Each invocation sends one sample (€5,000 for 30 days) to `OWNER_EMAIL`, independent of proposal decisions and prior alerts. It does not change the proposal or alert history. Build and deploy the current checkout to enable automatic delivery.
+
+### Reset an approval
+
 With `oc` logged in, run this from the repository root:
 
 ```powershell

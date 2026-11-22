@@ -35,6 +35,7 @@ class Settings(MailSettings):
         instrument_timeout_seconds: Timeout for the instrument agent, which calls the LLM itself.
         owner_email: Primary recipient of notifications.
         approval_copy_email: Optional blind-copy recipient for approval confirmations.
+        investment_alert_api_url: Backend URL for periodic investment alerts. Empty disables them.
         smtp_host: SMTP server; when empty, notifications stay in the in-app outbox only.
         smtp_port: SMTP port (STARTTLS).
         smtp_user: SMTP login, also used as the sender address.
@@ -42,6 +43,7 @@ class Settings(MailSettings):
     """
 
     approval_copy_email: str = ""
+    investment_alert_api_url: str = ""
     llm_base_url: str
     llm_model: str = ""
     llm_api_key: str = "EMPTY"
