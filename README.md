@@ -1,3 +1,42 @@
+# Fillable form
+### Project Name - "CFOcus"
+### One-Line summary
+SaaS platform with robust notifaction systems aimed to end SMEs problem with finance forever.
+### Technology Stack
+Python: (Backend)
+- FastAPI
+- Data Science libraries (numpy, pandas, etc.)
+- LangChain/LangGraph for agent
+
+JavaScript:
+- Svelte
+
+RedHat OpenShift (cloud)
+
+### Project Overview
+The Problem
+
+According to statistics over 50% SMEs are concerned about their cashflow and over 40% have cashflow surplus that they do not manage.
+Managing spare funds can earn SMEs up to 20000 euro annually and peace of mind is priceless. 
+Traditional cashflow management apps need constant overseeing whilst CFOcus only requires your action when needed, no constant checking of a web app. 
+
+Your Solution
+
+Instead of constant check ups on your dashboard you get notification when something requires your action or is greatly beneficial. However, for those who want to actively look at their finances or forecast they still can.
+
+Behind the build
+
+We used a service-based architecture to keep news, forecasting, and recommendations separate. A SvelteKit/Svelte 5 frontend connects through a FastAPI backend to the news service, forecast engine, and instrument-recommendation agent. The news service fetches RSS articles on a schedule and uses an LLM to identify relevant updates. The forecast combines account data with news-derived events and runs 4,000 simulations to estimate future balances. Recommendations and transactions are simulated; users approve any proposed action.  
+We built the app, services, agents, and approval workflow, using SQLite, LangChain/LangGraph, Qwen3-8B served with vLLM, NeMo Guardrails, MLflow, and Red Hat OpenShift AI.
+
+Challenges and discovieries  
+
+Along our journey the main discovery was what CFOs actually do and which actions can be made autonomous. Challenges involved realising what part of CFOs job is actually relevant to SMEs. We read a lot of industry articles, tutorials for SMEs how to manage finances and also tutorial on how to become CFO.
+
+Results and next steps
+
+We managed to create an app for the business given as an example that can be easily scaled for many more to come. Next steps would involve creating an MVP that we can test with users and seeing what truly works in practice
+__________________
 # CFOcus — "Pany" Team
 
 **CFOcus: an AI CFO for small business owners who don't have one.**
