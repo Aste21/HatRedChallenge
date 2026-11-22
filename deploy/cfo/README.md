@@ -22,6 +22,16 @@ Running the command again updates the CFO deployment and reuses its PVC and appl
 
 Approval confirmations use the backend-only `smtp-settings` Secret in `cfo-ai`. Set `SMTP_HOST`, `SMTP_PORT` (STARTTLS), `SMTP_USER`, `SMTP_PASSWORD` and `OWNER_EMAIL`. Each new approval sends its confirmation to the owner and an optional blind copy to `APPROVAL_COPY_EMAIL`. The backend records `sent` when SMTP accepts all recipients. Use a delivery-capable SMTP account for a real inbox. Ethereal captures messages in its test mailbox. Without the Secret, confirmations stay in the application outbox. Restart the backend after rotating SMTP settings.
 
+## Reopen a proposal before a demo
+
+With `oc` logged in, run this from the release checkout:
+
+```powershell
+.\scripts\reset-demo-approval.ps1
+```
+
+Refresh **Proposals** in CFOcus and approve an offer again. The command resets one approved Amalfi decision, its simulated transaction and its in-app approval notification. It saves those records on the demo PVC first. If there are several approvals, use `-Preview` to list their IDs and `-ProposalId <id>` to select one. Email is sent on the next approval.
+
 ## Access and acceptance
 
 Open the public `autonomous-cfo` Route and use the application login shown on the landing page. The demo account shares business data across its sessions. This release uses `/data/cfocus-demo.sqlite3` so the original access-controlled database is preserved on the same PVC. The backend and instrument API are internal. Input policy failures return 422, and a temporarily unavailable NeMo service returns 503. The MLflow experiment `autonomous-cfo-agents` is in workspace `cfo-ai`. Traces record decisions, timings and model metadata.
