@@ -77,11 +77,15 @@ try {
     foreach ($file in $files) {
         Copy-Item -LiteralPath (Join-Path $manifests $file) -Destination $scratch
     }
+    # Hash identical manifest text on macOS and Windows checkouts.
+    $configPath = Join-Path $scratch 'backend.yaml'
+    $configText = [IO.File]::ReadAllText($configPath).Replace("`r`n", "`n")
+    [IO.File]::WriteAllText($configPath, $configText, [Text.UTF8Encoding]::new($false))
     $spec = @{
         apiVersion = 'kustomize.config.k8s.io/v1beta1'
         kind = 'Kustomization'
         resources = @('backend.yaml', 'instruments.yaml')
-        commonAnnotations = @{ 'cfo/config-sha256' = (Get-FileHash (Join-Path $scratch 'backend.yaml')).Hash }
+        commonAnnotations = @{ 'cfo/config-sha256' = (Get-FileHash -LiteralPath $configPath).Hash }
         images = @(foreach ($component in $components) {
             $name, $digest = $images[$component] -split '@', 2
             @{ name = $name; digest = $digest }

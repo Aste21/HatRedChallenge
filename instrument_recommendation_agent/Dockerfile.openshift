@@ -1,4 +1,4 @@
-FROM image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend:demo
+FROM image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend:release
 USER 0
 WORKDIR /opt/instruments
 COPY requirements.txt ./

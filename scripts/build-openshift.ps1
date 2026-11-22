@@ -14,31 +14,40 @@ $scratch = Join-Path ([IO.Path]::GetTempPath()) ("cfo-" + [guid]::NewGuid())
 $archive = Join-Path $scratch 'sources.tar.gz'
 $instrumentDockerfile = Join-Path $scratch 'Dockerfile.openshift'
 # Only ship application sources, including uncommitted local edits.
-$files = switch ($Component) {
+switch ($Component) {
     backend {
-        @('Dockerfile','pyproject.toml') + @(git -C $dir ls-files --cached --others --exclude-standard -- 'app/*.py' 'app/knowledge/*/company_knowledge.md')
+        $files = @('Dockerfile','pyproject.toml')
+        $paths = @('app/*.py','app/knowledge/*/company_knowledge.md')
     }
     instruments {
-        @('requirements.txt') + @(git -C $dir ls-files --cached --others --exclude-standard -- 'app/*.py')
+        $files = @('requirements.txt')
+        $paths = @('app/*.py')
     }
     frontend {
-        @('Dockerfile','package.json','package-lock.json','.npmrc','tsconfig.json','vite.config.ts') +
-            @(git -C $dir ls-files --cached --others --exclude-standard -- src static)
+        $files = @('Dockerfile','package.json','package-lock.json','.npmrc','tsconfig.json','vite.config.ts')
+        $paths = @('src','static')
     }
 }
+$listed = git -c core.quotepath=false -C $dir ls-files --cached --others --exclude-standard -- @paths
 if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate application sources' }
+$files += @($listed | Where-Object { Test-Path -LiteralPath (Join-Path $dir $_) -PathType Leaf })
 $null = New-Item -ItemType Directory -Path $scratch
 try {
     $tarArgs = @('-czf', $archive, '-C', $dir) + $files
     if ($Component -eq 'instruments') {
         $dockerfile = Get-Content -LiteralPath (Join-Path $dir 'Dockerfile.openshift') -Raw
-        if ($BackendImage) {
-            $base = 'FROM image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend:demo'
-            if (-not $dockerfile.StartsWith($base + "`n") -and -not $dockerfile.StartsWith($base + "`r`n")) {
-                throw 'The instrument Dockerfile has an unexpected base image'
+        if (-not $BackendImage) {
+            $digest = oc get imagestreamtag cfo-backend:release -n cfo-ai -o 'jsonpath={.image.metadata.name}'
+            if ($LASTEXITCODE -ne 0 -or $digest -notmatch '^sha256:[a-f0-9]{64}$') {
+                throw 'Build the release backend first or pass -BackendImage'
             }
-            $dockerfile = $dockerfile.Replace($base, "FROM $BackendImage")
+            $BackendImage = "image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend@$digest"
         }
+        $base = 'FROM image-registry.openshift-image-registry.svc:5000/cfo-ai/cfo-backend:release'
+        if (-not $dockerfile.StartsWith($base + "`n") -and -not $dockerfile.StartsWith($base + "`r`n")) {
+            throw 'The instrument Dockerfile has an unexpected base image'
+        }
+        $dockerfile = $dockerfile.Replace($base, "FROM $BackendImage")
         [IO.File]::WriteAllText($instrumentDockerfile, $dockerfile, [Text.UTF8Encoding]::new($false))
         $tarArgs += @('-C', $scratch, 'Dockerfile.openshift')
     }

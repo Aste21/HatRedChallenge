@@ -4,17 +4,26 @@ The CFO frontend, FastAPI backend and instrument agent run in `cfo-ai`. The back
 
 ## Build and deploy
 
-From a checkout of this repository, log in with `oc login` to the hackathon cluster. Use PowerShell with Git, tar.exe and oc on PATH. The account needs to deploy in `cfo-ai` and apply the roles and bindings in `deploy/cfo/access.yaml`. The deployment uses the existing Qwen, NeMo, MLflow and `sth` services, the internal image registry and the `gp3-csi` storage class.
+From a checkout of this repository, log in with `oc login` to the hackathon cluster. On Windows use PowerShell, Git, tar.exe and oc. On macOS use Bash, Git, tar, openssl and the oc CLI on PATH. Builds run on OpenShift, including when launched from an Apple Silicon Mac. The account needs to deploy in `cfo-ai` and apply the roles and bindings in `deploy/cfo/access.yaml`. The deployment uses the existing Qwen, NeMo, MLflow and `sth` services, the internal image registry and the `gp3-csi` storage class.
 
 ```powershell
 .\scripts\deploy-openshift.ps1
 ```
 
+On macOS, run the preview first. Use the second command when you are ready to build and deploy the local checkout.
+
+```bash
+./scripts/deploy-openshift.sh --dry-run
+./scripts/deploy-openshift.sh
+```
+
 The script prints the cluster and identity, creates the CFO namespace if needed, and builds the current local sources. The instrument image inherits the exact backend image from the same invocation. After all builds succeed, it applies the manifests, waits for the three deployments and Route, prints the application URL and runs the acceptance check below. Its nonzero exit status signals a failed command or evaluation. A failed evaluation leaves the deployment available for inspection.
 
-To deploy existing successful release builds, pass all three build numbers, for example `-BuildVersions @{backend=4; instruments=2; frontend=3}`. Select the three builds you tested together.
+To build an individual image on macOS, run `./scripts/build-openshift.sh frontend --wait-for-image`. The PowerShell equivalent is `.\scripts\build-openshift.ps1 -Component frontend -WaitForImage`. Valid components are `backend`, `instruments` and `frontend`. This uploads a binary build to the existing BuildConfig. Workloads keep their deployed digests. The optional wait prints the new image reference. A standalone instruments build pins the current `cfo-backend:release` digest, or accepts a specific one via `--backend-image` / `-BackendImage`.
 
-Running the command again updates the CFO deployment and reuses its PVC and application session signing secret. To check the target and validate the manifests before building, run:
+To reuse tested images, pass three completed release build numbers. For example, the demo configuration verified for this release is backend **7**, instruments **2**, frontend **4**. On macOS use `./scripts/deploy-openshift.sh --build-versions 7 2 4`. On Windows use `.\scripts\deploy-openshift.ps1 -BuildVersions @{backend=7; instruments=2; frontend=4}`. To include new local changes, run the full deployment instead of selecting older builds.
+
+Running the command again updates the CFO deployment and reuses its PVC and application session signing secret. Both platforms hash the same LF-normalized backend manifest. The first deployment after upgrading from an older Windows checkout can roll pods once to update that annotation. To check the target and validate the manifests before building, run:
 
 ```powershell
 .\scripts\deploy-openshift.ps1 -WhatIf
@@ -24,11 +33,19 @@ Approval confirmations use the backend-only `smtp-settings` Secret in `cfo-ai`. 
 
 ## Reopen a proposal before a demo
 
-With `oc` logged in, run this from the release checkout:
+With `oc` logged in, run this from the repository root:
 
 ```powershell
 .\scripts\reset-demo-approval.ps1
 ```
+
+On macOS you can also use the existing reset utility directly:
+
+```bash
+oc exec -i -n cfo-ai deployment/cfo-backend -c backend -- python - preview < scripts/reset-demo-approval.py
+```
+
+Replace `preview` with `reset` to reopen an approval. Append its ID after `reset` to select a specific one.
 
 Refresh **Proposals** in CFOcus and approve an offer again. The command resets one approved Amalfi decision, its simulated transaction and its in-app approval notification. It saves those records on the demo PVC first. If there are several approvals, use `-Preview` to list their IDs and `-ProposalId <id>` to select one. Email is sent on the next approval.
 
