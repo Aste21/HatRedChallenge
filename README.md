@@ -9,6 +9,13 @@ in plain language: put spare cash into a deposit, or arrange a credit line befor
 
 Demo company: **Pizzeria Amalfi** (Frankfurt), with its full 2025 bank statement.
 
+## Live demo
+
+| Open | Access |
+|---|---|
+| [CFOcus application](https://autonomous-cfo-cfo-ai.apps.ocp.k8wkr.sandbox735.opentlc.com/) | Choose **Log in**. Demo username and password are both `amalfi`. |
+| [MLflow · agent traces and evaluations](https://rh-ai.apps.ocp.k8wkr.sandbox735.opentlc.com/mlflow/#/experiments/2?workspace=cfo-ai) | Sign in with an authorized OpenShift account. Select workspace `cfo-ai` and experiment `autonomous-cfo-agents`. |
+
 ![Pizzeria Amalfi balance in 2025](docs/images/pizzeria-amalfi-liquidity-2025-v4.png)
 
 ---
@@ -17,7 +24,7 @@ Demo company: **Pizzeria Amalfi** (Frankfurt), with its full 2025 bank statement
 
 | Page | What the owner sees |
 |---|---|
-| **Cashflow** | Balance history for 2025 and a 30/60/90-day forecast: the expected balance plus a likely range from 4,000 simulated futures |
+| **Overview** | Balance history for 2025 and a 30/60/90-day forecast: the expected balance plus a likely range from 4,000 simulated futures |
 | **Proposals** | Explained proposals (fixed-term deposits, credit line) with *What we see / What we suggest / Why this amount / On approval*, and an **Approve** button |
 | **Business news** | Articles the news agent judged relevant to the business, with the reason why |
 | **Chat** | CFOcus answers questions using the real forecast, the approved actions and the news. It is also available on every page as a floating widget that knows what is on screen |
@@ -183,7 +190,7 @@ The full list with comments is in [`backend/.env.example`](backend/.env.example)
 | `MODEL_URL`, `TOKEN`, `MODEL_NAME`, `ADMIN_TOKEN`, `DB_PATH` | news service | LLM plus the admin token for `/sources` and `/fetch` |
 | `FORECAST_API_URL`, `INSTRUMENT_API_URL`, `NEWS_API_URL` | backend | Where the team services live. Empty means not connected, and the UI shows a friendly message |
 | `DATABASE_PATH` | backend | SQLite file for chat history, decisions and the outbox (mount a PVC in the cluster) |
-| `OWNER_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | backend | Optional e-mail delivery of approval confirmations |
+| `OWNER_EMAIL`, `APPROVAL_COPY_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | backend | Approval confirmations by SMTP with an optional blind copy |
 | `CHAT_API_URL`, `NEWS_API_URL` | frontend | Backend and news service base URLs |
 | `SESSION_SECRET` | frontend | Signs the login cookie. Set it in the cluster; without it, everyone is signed out when the frontend restarts |
 
@@ -219,14 +226,11 @@ Coding conventions, the data format of the bank statement and the agent design r
 
 ## Deployment on OpenShift AI
 
-The cluster runs Qwen3-8B on vLLM, MLflow and NeMo Guardrails. See [`deploy/`](deploy/):
-- [`deploy/models/`](deploy/models/): the model InferenceService
-- [`deploy/mlflow/`](deploy/mlflow/): experiment tracking and agent tracing
-- [`deploy/guardrails/`](deploy/guardrails/): input guardrails
-- [`deploy/integration-next-steps.md`](deploy/integration-next-steps.md): open integration work
+The `cfo-ai` project runs the frontend, backend and instrument agent. The backend reads forecasts and business news from `sth`. It checks chat input with NeMo Guardrails before calling Qwen3-8B, served by vLLM on one NVIDIA L4 in `my-first-model`. MLflow records the model calls, guardrail decisions and evaluation results. [Open the recorded acceptance run](https://rh-ai.apps.ocp.k8wkr.sandbox735.opentlc.com/mlflow/#/experiments/2/runs/fbe15f2c7deb4bf19e84b6f3f5d2ba92?workspace=cfo-ai).
 
-Each service has a Dockerfile or can be deployed with `oc new-app`. The forecast service's
-[README](account-prediction/README.md) shows the full `oc` flow.
+For builds, deployment and the demo approval reset on Windows or macOS, use the [OpenShift deployment guide](deploy/cfo/README.md).
+
+Component documentation: [Qwen on vLLM](deploy/models/), [NeMo Guardrails](deploy/guardrails/), [MLflow](deploy/mlflow/) and the [forecast service](account-prediction/README.md).
 
 ## Data
 
