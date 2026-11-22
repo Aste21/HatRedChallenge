@@ -40,7 +40,9 @@ def reset_approval(path: Path, proposal_id: str | None, preview: bool) -> None:
         if preview:
             return
         if len(decisions) > 1:
-            raise SystemExit("Multiple approvals found. Run again with -ProposalId and one ID listed above.")
+            raise SystemExit(
+                "Multiple approvals found. Select one listed ID with --proposal-id (Bash) or -ProposalId (PowerShell)."
+            )
 
         decision = decisions[0]
         transactions = db.execute(

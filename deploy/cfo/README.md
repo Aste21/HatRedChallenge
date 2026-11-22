@@ -39,15 +39,16 @@ With `oc` logged in, run this from the repository root:
 .\scripts\reset-demo-approval.ps1
 ```
 
-On macOS you can also use the existing reset utility directly:
+On macOS or Linux, preview the approved proposals and run the reset when ready:
 
 ```bash
-oc exec -i -n cfo-ai deployment/cfo-backend -c backend -- python - preview < scripts/reset-demo-approval.py
+./scripts/reset-demo-approval.sh --preview
+./scripts/reset-demo-approval.sh
 ```
 
-Replace `preview` with `reset` to reopen an approval. Append its ID after `reset` to select a specific one.
+If several approvals are listed, select one with `./scripts/reset-demo-approval.sh --proposal-id <id>`.
 
-Refresh **Proposals** in CFOcus and approve an offer again. The command resets one approved Amalfi decision, its simulated transaction and its in-app approval notification. It saves those records on the demo PVC first. If there are several approvals, use `-Preview` to list their IDs and `-ProposalId <id>` to select one. Email is sent on the next approval.
+Refresh **Proposals** in CFOcus and approve an offer again. The command resets one approved Amalfi decision, its simulated transaction and its in-app approval notification. It saves those records on the demo PVC first. In PowerShell, use `-Preview` to list their IDs and `-ProposalId <id>` to select one. Email is sent on the next approval.
 
 ## Access and acceptance
 
